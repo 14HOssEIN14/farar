@@ -1,21 +1,28 @@
 import os
 import sys
+import glob
 from moabb.datasets import BNCI2014_001
 
 print("در حال دانلود دیتاست BNCI2014_001...")
 dataset = BNCI2014_001()
-
-# دانلود همه سوژه‌ها
 dataset.download()
 print("✅ دانلود انجام شد")
 
-# فقط مسیر ذخیره شده را نشان بده
-import mne
-data_path = mne.get_config('MNE_DATA', default='/home/runner/mne_data')
-print(f"\nدیتاست در این مسیر ذخیره شد: {data_path}")
+base_path = '/home/runner/mne_data'
+mat_files = glob.glob(f'{base_path}/**/*.mat', recursive=True)
 
-# بررسی وجود فایل‌ها
-for root, dirs, files in os.walk(data_path):
-    for file in files:
-        if file.endswith('.mat'):
-            print(f"  ✓ {file}")
+if not mat_files:
+    print("❌ فایلی پیدا نشد!")
+    sys.exit(1)
+
+print(f"✅ {len(mat_files)} فایل پیدا شد")
+
+os.makedirs('dataset_parts', exist_ok=True)
+
+for mat_file in mat_files:
+    file_name = os.path.basename(mat_file)
+    base_name = file_name.replace('.mat', '')
+    print(f"تقسیم {file_name}...")
+    os.system(f'split -b 50m "{mat_file}" "dataset_parts/{base_name}_part_"')
+
+print("✅ همه فایل‌ها تقسیم شدند")
