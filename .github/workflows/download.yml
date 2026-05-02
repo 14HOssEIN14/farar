@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true  # این خط اضافه شده
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   download:
@@ -22,14 +22,13 @@ jobs:
     - name: Install dependencies
       run: |
         pip install moabb mne
-        pip install numpy scipy matplotlib
         
     - name: Run download script
       run: python download.py
       
-    - name: Upload dataset as artifact
+    - name: Upload dataset folder
       uses: actions/upload-artifact@v4
       with:
         name: BNCI2014_001_dataset
-        path: /home/runner/work/eeg-data.zip
+        path: /home/runner/mne_data/
         retention-days: 7
