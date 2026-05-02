@@ -1,0 +1,32 @@
+name: Download EEG Dataset
+
+on:
+  workflow_dispatch:  # یعنی فقط وقتی تو دستی بزنی اجرا شود
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+        
+    - name: Install dependencies
+      run: |
+        pip install moabb mne
+        pip install numpy scipy matplotlib
+        
+    - name: Run download script
+      run: python download.py
+      
+    - name: Upload dataset as artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: BNCI2014_001_dataset
+        path: /home/runner/work/eeg-data.zip
+        retention-days: 7  # 7 روز در گیت‌هاب نگهداری می‌شود
