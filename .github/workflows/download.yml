@@ -1,7 +1,10 @@
 name: Download EEG Dataset
 
 on:
-  workflow_dispatch:  # یعنی فقط وقتی تو دستی بزنی اجرا شود
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true  # این خط اضافه شده
 
 jobs:
   download:
@@ -29,4 +32,4 @@ jobs:
       with:
         name: BNCI2014_001_dataset
         path: /home/runner/work/eeg-data.zip
-        retention-days: 7  # 7 روز در گیت‌هاب نگهداری می‌شود
+        retention-days: 7
