@@ -1,65 +1,61 @@
 import os
 import zipfile
 import sys
-import traceback
+from moabb.datasets import BNCI2014_001
 
 print(f"Python version: {sys.version}")
-print("در حال导入 کتابخانه‌ها...")
-
-try:
-    from moabb.datasets import BNCI2014_001
-    print("✓ moabb imported successfully")
-except Exception as e:
-    print(f"✗ Error importing moabb: {e}")
-    traceback.print_exc()
-    sys.exit(1)
+print("در حال بارگذاری کتابخانه‌ها...")
 
 def download_and_save():
     print("\nشروع دانلود دیتاست BNCI2014_001...")
     dataset = BNCI2014_001()
     
+    # روش صحیح در نسخه جدید moabb
+    # ابتدا همه سوژه‌ها را دانلود می‌کند (بدون آرگومان subject_ids)
     try:
-        # دانلود فقط ۲ سوژه اول برای تست سریع
-        dataset.download(subject_ids=[1, 2])
-        print("✓ Download completed successfully")
+        # دانلود همه سوژه‌ها
+        dataset.download()
+        print("✓ دانلود انجام شد (همه سوژه‌ها)")
     except Exception as e:
-        print(f"✗ Download failed: {e}")
-        traceback.print_exc()
+        print(f"خطا در دانلود: {e}")
         return None
     
     # پیدا کردن مسیر ذخیره شده
     try:
-        data_path = dataset.data_path(subject=1)
-        print(f"Data path: {data_path}")
+        # دریافت مسیر داده‌ها
+        data_paths = dataset.data_path()
+        if not data_paths:
+            print("مسیر داده پیدا نشد!")
+            return None
+            
+        # مسیر اصلی را پیدا می‌کنیم
+        base_path = os.path.dirname(os.path.dirname(data_paths[0]))
+        print(f"مسیر اصلی: {base_path}")
         
-        # مسیر اصلی
-        base_path = os.path.dirname(os.path.dirname(data_path))
-        print(f"Base path: {base_path}")
-        
-        # ساخت زیپ ساده در مسیر فعلی
-        zip_path = os.path.join(os.getcwd(), 'eeg-data.zip')
-        print(f"Creating zip at: {zip_path}")
+        # ساخت فایل زیپ
+        zip_path = os.path.join(os.getcwd(), 'BNCI2014_001_dataset.zip')
+        print(f"در حال زیپ کردن به: {zip_path}")
         
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
             for root, dirs, files in os.walk(base_path):
                 for file in files:
                     file_path = os.path.join(root, file)
+                    # نام نسبی برای داخل زیپ
                     arcname = os.path.relpath(file_path, os.path.dirname(base_path))
                     zipf.write(file_path, arcname)
-                    print(f"  Added: {arcname}")
+                    print(f"  افزوده شد: {os.path.basename(file_path)}")
         
-        print(f"✓ Zip created successfully: {zip_path}")
+        print(f"✓ زیپ با موفقیت ساخته شد! حجم: {os.path.getsize(zip_path) / (1024*1024):.2f} MB")
         return zip_path
         
     except Exception as e:
-        print(f"✗ Error during zip creation: {e}")
-        traceback.print_exc()
+        print(f"خطا در ساخت زیپ: {e}")
         return None
 
 if __name__ == "__main__":
     result = download_and_save()
     if result:
-        print(f"\n✅ SUCCESS: Dataset saved to {result}")
+        print(f"\n✅ موفقیت! دیتاست در {result} ذخیره شد")
     else:
-        print("\n❌ FAILED: Could not download dataset")
+        print("\n❌ شکست در دانلود دیتاست")
         sys.exit(1)
