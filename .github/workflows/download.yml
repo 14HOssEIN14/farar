@@ -1,4 +1,4 @@
-name: Download BNCI2014_001 (No Split)
+name: Download BNCI GDF Files (One by One)
 
 on:
   workflow_dispatch:
@@ -9,26 +9,34 @@ permissions:
 jobs:
   download:
     runs-on: ubuntu-latest
+    
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Install dependencies
-        run: |
-          pip install moabb mne
-
-      - name: Download dataset (MOABB will handle everything)
-        run: python download.py
-
-      - name: Commit and push to repository
-        run: |
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git add BNCI2014_001_dataset/
-          git commit -m "Add original BNCI2014_001 dataset (GDF format, no split)" || echo "No changes to commit"
-          git push
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+        
+    - name: Install dependencies
+      run: |
+        pip install moabb mne
+        
+    - name: Download dataset
+      run: python download.py
+      
+    - name: Commit and push each file separately
+      run: |
+        git config user.name "GitHub Actions"
+        git config user.email "actions@github.com"
+        
+        # اضافه کردن و push کردن هر فایل جداگانه
+        for file in bnci_gdf_files/*; do
+          if [ -f "$file" ]; then
+            git add "$file"
+            git commit -m "Add $(basename $file)" || echo "No new file"
+            git push
+            echo "✅ $(basename $file) pushed"
+          fi
+        done
