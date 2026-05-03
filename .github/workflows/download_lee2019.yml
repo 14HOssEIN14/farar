@@ -2,18 +2,16 @@ name: Download and Push Lee2019_MI Dataset
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main ]
 
 jobs:
   download-and-push:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
     
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -32,7 +30,5 @@ jobs:
         git config --global user.name 'github-actions[bot]'
         git config --global user.email 'github-actions[bot]@users.noreply.github.com'
         git add Lee2019_MI_data/
-        git commit -m "Add Lee2019_MI dataset (automated download)" || echo "No changes to commit"
+        git commit -m "Add Lee2019_MI dataset" || echo "No changes to commit"
         git push
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
