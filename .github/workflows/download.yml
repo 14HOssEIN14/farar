@@ -1,4 +1,4 @@
-name: Download and Split Dataset
+name: Download BNCI2014_001 (No Split)
 
 on:
   workflow_dispatch:
@@ -9,27 +9,26 @@ permissions:
 jobs:
   download:
     runs-on: ubuntu-latest
-    
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
-        
-    - name: Install dependencies
-      run: |
-        pip install moabb mne
-        
-    - name: Run download and split
-      run: python download.py
-      
-    - name: Commit and push to repository
-      run: |
-        git config user.name "GitHub Actions"
-        git config user.email "actions@github.com"
-        git add dataset_parts/
-        git commit -m "Add dataset parts" || echo "Nothing to commit"
-        git push
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install moabb mne
+
+      - name: Download dataset (MOABB will handle everything)
+        run: python download.py
+
+      - name: Commit and push to repository
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add BNCI2014_001_dataset/
+          git commit -m "Add original BNCI2014_001 dataset (GDF format, no split)" || echo "No changes to commit"
+          git push
