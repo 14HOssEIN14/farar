@@ -39,7 +39,7 @@ print('Download complete!')
     - name: Commit and push to repository
       run: |
         git config user.name "GitHub Actions"
-        git config user.email "actions@github.com"
+        git config.user.email "actions@github.com"
         git add lee2019_mi_data/
         git commit -m "Add Lee2019_MI dataset" || echo "Nothing to commit"
         git push
