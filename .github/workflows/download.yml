@@ -1,4 +1,4 @@
-name: Download BNCI GDF Files (One by One)
+name: Download and Split ZIP
 
 on:
   workflow_dispatch:
@@ -14,29 +14,15 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
-        
-    - name: Install dependencies
+    - name: Download and split
       run: |
-        pip install moabb mne
+        wget -O IV_2a_gdf.zip "http://www.bbci.de/competition/iv/download/IV_2a_gdf.zip"
+        split -b 90m IV_2a_gdf.zip IV_2a_gdf.zip.part_
         
-    - name: Download dataset
-      run: python download.py
-      
-    - name: Commit and push each file separately
+    - name: Commit and push
       run: |
         git config user.name "GitHub Actions"
         git config user.email "actions@github.com"
-        
-        # اضافه کردن و push کردن هر فایل جداگانه
-        for file in bnci_gdf_files/*; do
-          if [ -f "$file" ]; then
-            git add "$file"
-            git commit -m "Add $(basename $file)" || echo "No new file"
-            git push
-            echo "✅ $(basename $file) pushed"
-          fi
-        done
+        git add IV_2a_gdf.zip.part_*
+        git commit -m "Add BNCI dataset zip parts (90MB each)" || echo "Nothing to commit"
+        git push
