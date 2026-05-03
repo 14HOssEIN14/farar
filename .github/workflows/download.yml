@@ -1,4 +1,4 @@
-name: Download and Split ZIP
+name: Download Lee2019_MI Dataset
 
 on:
   workflow_dispatch:
@@ -14,15 +14,32 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       
-    - name: Download and split
-      run: |
-        wget -O IV_2a_gdf.zip "http://www.bbci.de/competition/iv/download/IV_2a_gdf.zip"
-        split -b 90m IV_2a_gdf.zip IV_2a_gdf.zip.part_
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
         
-    - name: Commit and push
+    - name: Install dependencies
+      run: |
+        pip install moabb mne numpy scipy matplotlib
+        
+    - name: Download Lee2019_MI dataset
+      run: |
+        python -c "
+import os
+from moabb.datasets import Lee2019_MI
+
+os.environ['MNE_DATA'] = os.path.join(os.getcwd(), 'lee2019_mi_data')
+print('Downloading Lee2019_MI dataset...')
+dataset = Lee2019_MI()
+dataset.download()
+print('Download complete!')
+"
+        
+    - name: Commit and push to repository
       run: |
         git config user.name "GitHub Actions"
         git config user.email "actions@github.com"
-        git add IV_2a_gdf.zip.part_*
-        git commit -m "Add BNCI dataset zip parts (90MB each)" || echo "Nothing to commit"
+        git add lee2019_mi_data/
+        git commit -m "Add Lee2019_MI dataset" || echo "Nothing to commit"
         git push
