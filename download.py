@@ -1,28 +1,46 @@
-import os
+"""
+download_and_push.py
+Downloads Lee2019_MI dataset and saves it to the repository
+"""
+
 from moabb.datasets import Lee2019_MI
-import mne
+from moabb.paradigms import MotorImagery
+import pickle
+import os
 
-# Set path for MNE data
-os.environ['MNE_DATA'] = os.path.join(os.getcwd(), 'mne_data')
+# Create output directory
+output_dir = "Lee2019_MI_data"
+os.makedirs(output_dir, exist_ok=True)
 
-print("=" * 60)
-print("Downloading Lee2019_MI Dataset")
-print("=" * 60)
-
-# Create dataset instance
+# Initialize dataset and paradigm
 dataset = Lee2019_MI()
+paradigm = MotorImagery(
+    fmin=8, fmax=30,
+    tmin=1.0, tmax=3.5,
+    n_classes=2
+)
 
-# Download all subjects (54 subjects)
-print("\n1. Downloading dataset (54 subjects, 2 sessions each)...")
-print("   This may take a while due to large file sizes.")
-dataset.download()
+# Download and save data for all subjects
+all_data = {}
+for subject in range(1, 55):
+    try:
+        X, y, meta = paradigm.get_data(
+            dataset,
+            subjects=[subject]
+        )
+        all_data[subject] = {
+            'X': X,
+            'y': y,
+            'meta': meta
+        }
+        print(f"Downloaded subject {subject}: {X.shape}")
+    except Exception as e:
+        print(f"Failed subject {subject}: {e}")
 
-print("\n2. Verifying download...")
-# Check data for first subject
-raw = dataset._get_single_subject_data(1)['session_0']['run_0']
-print(f"   Sample data shape: {raw.get_data().shape}")
-print(f"   Sampling frequency: {raw.info['sfreq']} Hz")
-print(f"   Number of channels: {len(raw.ch_names)}")
+# Save to pickle file
+output_file = os.path.join(output_dir, 'lee2019_mi.pkl')
+with open(output_file, 'wb') as f:
+    pickle.dump(all_data, f)
 
-print("\n✅ Download complete!")
-print(f"   Data saved to: {os.environ['MNE_DATA']}")
+print(f"Dataset saved to {output_file}")
+print(f"Total subjects downloaded: {len(all_data)}")
