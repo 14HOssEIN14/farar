@@ -1,28 +1,20 @@
 import os
-import sys
-import glob
+import shutil
 from moabb.datasets import BNCI2014_001
+import mne
 
-print("در حال دانلود دیتاست BNCI2014_001...")
-dataset = BNCI2014_001()
-dataset.download()
-print("✅ دانلود انجام شد")
+# مسیر ذخیره‌سازی موقت MOABB (برای اینکه مطمئن بشیم کجاست)
+save_path = os.path.join(os.getcwd(), "bnci_data")
+mne.utils.set_config('MNE_DATA', save_path, set_env=True)
 
-base_path = '/home/runner/mne_data'
-mat_files = glob.glob(f'{base_path}/**/*.mat', recursive=True)
+# این دو خط جادو هستند:
+dataset = BNCI2014_001()  # <-- اسم درست دیتاست
+dataset.download()       # <-- خودکار دانلود می‌کند
 
-if not mat_files:
-    print("❌ فایلی پیدا نشد!")
-    sys.exit(1)
-
-print(f"✅ {len(mat_files)} فایل پیدا شد")
-
-os.makedirs('dataset_parts', exist_ok=True)
-
-for mat_file in mat_files:
-    file_name = os.path.basename(mat_file)
-    base_name = file_name.replace('.mat', '')
-    print(f"تقسیم {file_name}...")
-    os.system(f'split -b 50m "{mat_file}" "dataset_parts/{base_name}_part_"')
-
-print("✅ همه فایل‌ها تقسیم شدند")
+# فایل‌ها الان توی پوشه mne_data/bnci_data هستند
+# برای اینکه توی ریپازیتوری باشه، یه کم جابه‌جا می‌کنیم
+if os.path.exists("mne_data/bnci_data"):
+    shutil.move("mne_data/bnci_data", "BNCI2014_001_dataset")
+    print("✅ دیتاست با موفقیت در پوشه 'BNCI2014_001_dataset' ذخیره شد.")
+else:
+    print("⚠️ یکبار مسیر را بررسی کنید، اما دانلود انجام شده است.")
