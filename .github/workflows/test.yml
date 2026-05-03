@@ -1,0 +1,27 @@
+name: Download BIOSIG
+
+on:
+  workflow_dispatch:
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      
+      - name: Install requests
+        run: pip install requests
+      
+      - name: Run dd.py
+        run: python dd.py
+      
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: biosig-plugin
+          path: biosig*.tar.gz
