@@ -1,20 +1,34 @@
 import os
-import shutil
+import glob
 from moabb.datasets import BNCI2014_001
 import mne
 
-# مسیر ذخیره‌سازی موقت MOABB (برای اینکه مطمئن بشیم کجاست)
-save_path = os.path.join(os.getcwd(), "bnci_data")
-mne.utils.set_config('MNE_DATA', save_path, set_env=True)
+# ایجاد پوشه دانلود
+os.makedirs('bnci_raw', exist_ok=True)
+os.makedirs('bnci_gdf_files', exist_ok=True)
 
-# این دو خط جادو هستند:
-dataset = BNCI2014_001()  # <-- اسم درست دیتاست
-dataset.download()       # <-- خودکار دانلود می‌کند
+# تنظیم مسیر برای MNE
+mne.utils.set_config('MNE_DATA', os.path.abspath('bnci_raw'), set_env=True)
 
-# فایل‌ها الان توی پوشه mne_data/bnci_data هستند
-# برای اینکه توی ریپازیتوری باشه، یه کم جابه‌جا می‌کنیم
-if os.path.exists("mne_data/bnci_data"):
-    shutil.move("mne_data/bnci_data", "BNCI2014_001_dataset")
-    print("✅ دیتاست با موفقیت در پوشه 'BNCI2014_001_dataset' ذخیره شد.")
-else:
-    print("⚠️ یکبار مسیر را بررسی کنید، اما دانلود انجام شده است.")
+print("در حال دانلود دیتاست...")
+dataset = BNCI2014_001()
+dataset.download()
+
+# پیدا کردن فایل‌های GDF اصلی
+print("جستجوی فایل‌های GDF...")
+gdf_files = glob.glob('bnci_raw/**/*.gdf', recursive=True)
+
+if not gdf_files:
+    print("فایل GDF پیدا نشد. شاید فرمت .mat باشه. جستجو برای .mat...")
+    gdf_files = glob.glob('bnci_raw/**/*.mat', recursive=True)
+
+print(f"تعداد فایل‌ها: {len(gdf_files)}")
+
+# کپی فایل‌ها به پوشه مقصد با اسم ساده
+for src in gdf_files:
+    fname = os.path.basename(src)
+    dst = os.path.join('bnci_gdf_files', fname)
+    os.system(f'cp "{src}" "{dst}"')
+    print(f"کپی شد: {fname}")
+
+print("همه فایل‌ها آماده‌ی push هستند.")
