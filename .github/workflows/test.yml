@@ -1,7 +1,10 @@
-name: Download BIOSIG
+name: Download and Push
 
 on:
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   download:
@@ -20,8 +23,10 @@ jobs:
       - name: Run dd.py
         run: python dd.py
       
-      - name: Upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: biosig-plugin
-          path: biosig*.tar.gz
+      - name: Commit and push files back to repo
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add .
+          git commit -m "Add BIOSIG plugin files" || echo "Nothing to commit"
+          git push
