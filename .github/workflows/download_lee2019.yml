@@ -23,7 +23,7 @@ jobs:
         pip install moabb mne
     
     - name: Download Lee2019_MI dataset
-      run: python download_and_push.py
+      run: python download.py
     
     - name: Commit and push dataset to repo
       run: |
