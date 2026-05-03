@@ -1,22 +1,26 @@
 import requests
 import os
-import tarfile
 import shutil
+import zipfile
+import io
 
-url = "https://sourceforge.net/projects/biosig/files/BioSig%20for%20Octave%20and%20Matlab/biosig4octmat-latest.tar.gz/download"
+url = "https://github.com/sccn/biosig/archive/refs/heads/master.zip"
 headers = {'User-Agent': 'Mozilla/5.0'}
 
-print("Downloading...")
+print("Downloading from GitHub...")
 r = requests.get(url, headers=headers, allow_redirects=True)
 
-# ذخیره توی خود ریپازیتوری
-with open("biosig.tar.gz", "wb") as f:
-    f.write(r.content)
+print("Extracting files...")
+z = zipfile.ZipFile(io.BytesIO(r.content))
+z.extractall(".")
 
-# اکسترکت توی خود ریپازیتوری
-print("Extracting...")
-with tarfile.open("biosig.tar.gz", "r:gz") as tar:
-    tar.extractall(".")
+# تغییر نام پوشه به چیزی ساده
+if os.path.exists("biosig-master"):
+    shutil.rmtree("biosig", ignore_errors=True)
+    os.rename("biosig-master", "biosig")
+    print("✅ Renamed folder to 'biosig'")
 
-print("Done! فایل‌ها توی ریپازیتوری هستند:")
-print(os.listdir("."))
+print("Done! Files in repo:")
+for item in os.listdir("."):
+    if "biosig" in item.lower():
+        print(f"  - {item}")
