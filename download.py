@@ -8,11 +8,9 @@ from moabb.paradigms import MotorImagery
 import pickle
 import os
 
-# Create output directory
 output_dir = "Lee2019_MI_data"
 os.makedirs(output_dir, exist_ok=True)
 
-# Initialize dataset and paradigm
 dataset = Lee2019_MI()
 paradigm = MotorImagery(
     fmin=8, fmax=30,
@@ -20,7 +18,6 @@ paradigm = MotorImagery(
     n_classes=2
 )
 
-# Download and save data for all subjects
 all_data = {}
 for subject in range(1, 55):
     try:
@@ -37,7 +34,6 @@ for subject in range(1, 55):
     except Exception as e:
         print(f"Failed subject {subject}: {e}")
 
-# Save to pickle file
 output_file = os.path.join(output_dir, 'lee2019_mi.pkl')
 with open(output_file, 'wb') as f:
     pickle.dump(all_data, f)
