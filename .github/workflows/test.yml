@@ -23,10 +23,11 @@ jobs:
       - name: Run dd.py
         run: python dd.py
       
-      - name: Commit and push files back to repo
+      - name: Commit and push
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
+          git add biosig/ biosig-master/ 2>/dev/null || true
           git add .
-          git commit -m "Add BIOSIG plugin files" || echo "Nothing to commit"
+          git commit -m "Add BIOSIG plugin folder" || echo "Nothing to commit"
           git push
