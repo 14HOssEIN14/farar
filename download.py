@@ -1,19 +1,28 @@
 import os
-import urllib.request
+from moabb.datasets import Lee2019_MI
+import mne
 
-url = "http://www.bbci.de/competition/iv/download/IV_2a_gdf.zip"
-zip_name = "IV_2a_gdf.zip"
+# Set path for MNE data
+os.environ['MNE_DATA'] = os.path.join(os.getcwd(), 'mne_data')
 
-# 1. دانلود
-print("📥 در حال دانلود...")
-urllib.request.urlretrieve(url, zip_name)
-print(f"✅ دانلود شد: {zip_name}")
+print("=" * 60)
+print("Downloading Lee2019_MI Dataset")
+print("=" * 60)
 
-# 2. اسپلیت به قطعات 90 مگ
-print("✂️ در حال اسپلیت...")
-os.system(f'split -b 90m "{zip_name}" "IV_2a_gdf.zip.part_"')
-print("✅ اسپلیت تمام شد")
+# Create dataset instance
+dataset = Lee2019_MI()
 
-# 3. لیست قطعات
-print("\n📁 قطعات ایجاد شده:")
-os.system('ls -lh IV_2a_gdf.zip.part_*')
+# Download all subjects (54 subjects)
+print("\n1. Downloading dataset (54 subjects, 2 sessions each)...")
+print("   This may take a while due to large file sizes.")
+dataset.download()
+
+print("\n2. Verifying download...")
+# Check data for first subject
+raw = dataset._get_single_subject_data(1)['session_0']['run_0']
+print(f"   Sample data shape: {raw.get_data().shape}")
+print(f"   Sampling frequency: {raw.info['sfreq']} Hz")
+print(f"   Number of channels: {len(raw.ch_names)}")
+
+print("\n✅ Download complete!")
+print(f"   Data saved to: {os.environ['MNE_DATA']}")
