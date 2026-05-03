@@ -20,21 +20,17 @@ jobs:
           python-version: '3.10'
 
       - name: Install dependencies
-        run: |
-          pip install moabb mne
+        run: pip install moabb mne
 
       - name: Download Lee2019_MI dataset
         run: |
-          python -c "
-import os
-from moabb.datasets import Lee2019_MI
-
-os.environ['MNE_DATA'] = os.path.join(os.getcwd(), 'lee2019_mi_data')
-print('Downloading Lee2019_MI dataset...')
-dataset = Lee2019_MI()
-dataset.download()
-print('Download complete!')
-"
+          import os
+          from moabb.datasets import Lee2019_MI
+          os.environ['MNE_DATA'] = os.path.join(os.getcwd(), 'lee2019_mi_data')
+          print('Downloading Lee2019_MI dataset...')
+          dataset = Lee2019_MI()
+          dataset.download()
+          print('Download complete!')
 
       - name: Commit and push to repository
         run: |
