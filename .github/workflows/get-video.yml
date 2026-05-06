@@ -1,4 +1,4 @@
-name: دانلود، زیپ، اسپلیت و آپلود به ریپازیتوری
+name: دانلود با Cobalt API (بدون خطا)
 
 on:
   workflow_dispatch:
@@ -6,13 +6,14 @@ on:
       video_url:
         description: 'لینک ویدیوی یوتیوب'
         required: true
+        default: 'https://youtu.be/6Zy5VLcEbZc'
       quality:
-        description: 'کیفیت (480 یا 720)'
+        description: 'کیفیت (480/720)'
         required: true
         default: '720'
 
 jobs:
-  process:
+  download:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -21,141 +22,94 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
       
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-      
-      - name: نصب yt-dlp و QuickJS (برای حل چالش جاوااسکریپت)
+      - name: نصب ابزارها
         run: |
-          pip install --upgrade yt-dlp
-          # نصب QuickJS برای حل چالش‌های یوتیوب
-          sudo apt-get update
-          sudo apt-get install -y quickjs
-          echo "✅ yt-dlp و QuickJS نصب شدند"
+          pip install requests
+          sudo apt-get install -y jq
       
-      - name: آماده‌سازی کوکی (از فایل یا Secret)
+      - name: دریافت لینک مستقیم از Cobalt API
+        id: cobalt
         run: |
-          # استفاده از کوکی اگه وجود داره
-          if [ -f "cookies.txt" ]; then
-            echo "✅ کوکی از فایل cookies.txt بارگیری شد"
-          elif [ -n "${{ secrets.YT_COOKIES }}" ]; then
-            echo "${{ secrets.YT_COOKIES }}" > cookies.txt
-            echo "✅ کوکی از Secret بارگیری شد"
+          python3 << EOF
+          import requests
+          import json
+          
+          video_url = "${{ inputs.video_url }}"
+          quality = "${{ inputs.quality }}"
+          
+          print(f"🔍 در حال ارسال درخواست به Cobalt API...")
+          print(f"📹 ویدیو: {video_url}")
+          print(f"🎯 کیفیت: {quality}p")
+          
+          response = requests.post(
+              "https://api.cobalt.tools/api/json",
+              json={
+                  "url": video_url,
+                  "vQuality": quality,
+                  "vCodec": "h264",
+                  "isAudioOnly": False,
+                  "isTTFullAudio": False,
+                  "isNoDither": True
+              },
+              headers={
+                  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                  "Accept": "application/json",
+                  "Content-Type": "application/json"
+              },
+              timeout=60
+          )
+          
+          if response.status_code == 200:
+              data = response.json()
+              status = data.get("status")
+              
+              if status == "redirect" and data.get("url"):
+                  direct_url = data["url"]
+                  print(f"\n✅ لینک مستقیم دریافت شد!")
+                  print(f"🔗 {direct_url}")
+                  
+                  # ذخیره لینک در فایل
+                  with open("direct_link.txt", "w") as f:
+                      f.write(direct_url)
+                  print(f"\n💾 لینک در فایل direct_link.txt ذخیره شد")
+                  
+              elif status == "error":
+                  print(f"❌ خطای Cobalt: {data.get('text')}")
+                  exit(1)
+              else:
+                  print(f"❌ پاسخ غیرمنتظره: {data}")
+                  exit(1)
+          else:
+              print(f"❌ خطای اتصال به Cobalt: {response.status_code}")
+              exit(1)
+          EOF
+      
+      - name: دانلود ویدیو با لینک مستقیم
+        run: |
+          if [ -f "direct_link.txt" ]; then
+            LINK=$(cat direct_link.txt)
+            echo "📥 در حال دانلود ویدیو..."
+            wget --no-check-certificate -O "video.mp4" "$LINK"
+            echo "✅ ویدیو دانلود شد"
+            ls -lh video.mp4
           else
-            echo "⚠️ هیچ کوکی‌ای پیدا نشد! فقط برای ویدیوهای عمومی کار می‌کنه"
+            echo "❌ فایل لینک پیدا نشد"
+            exit 1
           fi
       
-      - name: دانلود ویدیو (با تنظیمات صحیح)
-        run: |
-          # تنظیمات پایه
-          OPTS="-f \"best[height<=${{ inputs.quality }}]\" -o \"video.mp4\""
-          
-          # اضافه کردن کوکی اگه وجود داره
-          if [ -f "cookies.txt" ]; then
-            OPTS="--cookies cookies.txt $OPTS"
-          fi
-          
-          # استفاده از کلاینت وب (که با کوکی کار می‌کنه) + QuickJS برای حل چالش
-          eval yt-dlp $OPTS \
-            --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
-            --extractor-args "youtube:player_client=web,default" \
-            --js-runtimes quickjs \
-            "${{ inputs.video_url }}"
-          
-          echo "✅ ویدیو دانلود شد"
-          ls -lh video.mp4
-      
-      - name: اگر روش اول失敗 شد، روش دوم (بدون کوکی با کلاینت متفاوت)
-        if: failure()
-        run: |
-          echo "🔄 روش دوم را امتحان می‌کنم..."
-          
-          # روش دوم: استفاده از کلاینت tv و بدون کوکی
-          yt-dlp --user-agent "Mozilla/5.0 (ChromiumOS; CrOS aarch64 15944.31.0) AppleWebKit/537.36" \
-                 --extractor-args "youtube:player_client=tv,web" \
-                 --js-runtimes quickjs \
-                 -f "best[height<=${{ inputs.quality }}]" \
-                 -o "video.mp4" \
-                 "${{ inputs.video_url }}"
-          
-          echo "✅ ویدیو دانلود شد"
-          ls -lh video.mp4
-      
-      - name: محاسبه حجم فایل
-        id: size
-        run: |
-          SIZE=$(stat -c%s "video.mp4")
-          SIZE_MB=$((SIZE / 1024 / 1024))
-          echo "size_mb=$SIZE_MB" >> $GITHUB_OUTPUT
-          echo "حجم فایل: $SIZE_MB MB"
-      
-      - name: زیپ کردن ویدیو
-        run: |
-          zip video.zip video.mp4
-          echo "✅ ویدیو زیپ شد"
-          ls -lh video.zip
-      
-      - name: بررسی حجم و تصمیم‌گیری
-        id: decision
-        run: |
-          ZIP_SIZE=$(stat -c%s "video.zip")
-          ZIP_MB=$((ZIP_SIZE / 1024 / 1024))
-          echo "حجم فایل زیپ شده: $ZIP_MB MB"
-          
-          if [ $ZIP_MB -le 50 ]; then
-            echo "📦 حجم کمتر از 50MB - فقط زیپ و آپلود مستقیم"
-            echo "action=direct" >> $GITHUB_OUTPUT
-            cp video.zip "video_$(date +%Y%m%d_%H%M%S).zip"
-          else
-            echo "✂️ حجم بیشتر از 50MB - نیاز به اسپلیت"
-            echo "action=split" >> $GITHUB_OUTPUT
-          fi
-      
-      - name: اسپلیت فایل زیپ به بخش‌های 50MB
-        if: steps.decision.outputs.action == 'split'
-        run: |
-          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-          echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
-          
-          mkdir -p "chunks_$TIMESTAMP"
-          cd "chunks_$TIMESTAMP"
-          
-          # اسپلیت فایل زیپ
-          split -b 50M ../video.zip "part_" -a 2 --additional-suffix=".zip"
-          
-          # درست کردن فایل راهنما
-          echo "این فایل‌ها بخش‌های یک فایل زیپ هستند." > README.txt
-          echo "برای ترکیب کردن از دستور زیر استفاده کن:" >> README.txt
-          echo "cat part_*.zip > merged.zip" >> README.txt
-          echo "" >> README.txt
-          echo "فایل اصلی: video.mp4" >> README.txt
-          echo "لینک اصلی: ${{ inputs.video_url }}" >> README.txt
-          
-          cd ..
-          
-          echo "✅ فایل زیپ به بخش‌های زیر تقسیم شد:"
-          ls -lh "chunks_$TIMESTAMP/"
-      
-      - name: آپلود به ریپازیتوری (حالت مستقیم)
-        if: steps.decision.outputs.action == 'direct'
+      - name: زیپ و آپلود به ریپازیتوری
         run: |
           mkdir -p uploaded_videos
-          cp video_*.zip uploaded_videos/
-          echo "✅ فایل به پوشه uploaded_videos اضافه شد"
-      
-      - name: آپلود به ریپازیتوری (حالت اسپلیت)
-        if: steps.decision.outputs.action == 'split'
-        run: |
-          TIMESTAMP="${{ steps.timestamp.outputs.timestamp }}"
-          mkdir -p "split_files/$TIMESTAMP"
-          cp -r "chunks_$TIMESTAMP"/* "split_files/$TIMESTAMP/"
-          echo "✅ فایل‌های اسپلیت شده به پوشه split_files/$TIMESTAMP اضافه شدند"
-      
-      - name: Commit و Push به ریپازیتوری
-        run: |
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          ZIP_NAME="video_${TIMESTAMP}.zip"
+          
+          zip "$ZIP_NAME" video.mp4
+          cp "$ZIP_NAME" "uploaded_videos/"
+          
           git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .
+          git config user.email "actions@github.com"
+          git add uploaded_videos/
           git commit -m "Add video from ${{ inputs.video_url }}" || echo "Nothing to commit"
           git push
+          
+          echo "✅ فایل نهایی: uploaded_videos/$ZIP_NAME"
