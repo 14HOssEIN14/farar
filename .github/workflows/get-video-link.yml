@@ -1,15 +1,89 @@
-name: Get Link
+name: دریافت لینک مستقیم یوتیوب با Cobalt API
 
 on:
   workflow_dispatch:
     inputs:
-      url:
-        description: 'لینک یوتیوب'
+      video_url:
+        description: 'لینک ویدیوی یوتیوب'
         required: true
+        default: 'https://youtu.be/dQw4w9WgXcQ'
+      quality:
+        description: 'کیفیت (480 یا 720)'
+        required: true
+        default: '720'
+        type: choice
+        options:
+          - '480'
+          - '720'
 
 jobs:
-  get:
+  get-link:
     runs-on: ubuntu-latest
     steps:
-      - run: pip install yt-dlp
-      - run: yt-dlp -g -f "best[height<=720]" "${{ inputs.url }}"
+      - name: دریافت لینک مستقیم
+        run: |
+          python3 << EOF
+          import requests
+          import json
+          import urllib3
+          
+          # غیرفعال کردن هشدار SSL
+          urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+          
+          video_url = "${{ inputs.video_url }}"
+          quality = "${{ inputs.quality }}"
+          
+          print(f"🔍 در حال دریافت لینک برای: {video_url}")
+          print(f"🎯 کیفیت: {quality}p")
+          print("")
+          
+          try:
+              response = requests.post(
+                  "https://api.cobalt.tools/api/json",
+                  json={
+                      "url": video_url,
+                      "vQuality": quality,
+                      "vCodec": "h264",
+                      "isAudioOnly": False
+                  },
+                  headers={
+                      "Accept": "application/json",
+                      "Content-Type": "application/json",
+                      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                  },
+                  verify=False,
+                  timeout=30
+              )
+              
+              if response.status_code == 200:
+                  data = response.json()
+                  status = data.get("status")
+                  
+                  if status == "redirect" and data.get("url"):
+                      print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                      print("✅ لینک مستقیم دانلود:")
+                      print(data["url"])
+                      print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                      
+                      # ذخیره لینک در فایل
+                      with open("direct_link.txt", "w") as f:
+                          f.write(data["url"])
+                      print("💾 لینک در فایل direct_link.txt ذخیره شد")
+                      
+                  elif status == "error":
+                      print(f"❌ خطای سرویس: {data.get('text')}")
+                  else:
+                      print(f"❌ پاسخ غیرمنتظره: {data}")
+              else:
+                  print(f"❌ خطای اتصال: {response.status_code}")
+                  
+          except Exception as e:
+              print(f"❌ خطا: {e}")
+          EOF
+      
+      - name: آپلود فایل لینک
+        uses: actions/upload-artifact@v4
+        with:
+          name: لینک-مستقیم
+          path: direct_link.txt
+          retention-days: 7
