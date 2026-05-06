@@ -1,4 +1,4 @@
-name: دانلود با Cobalt API (بدون خطا)
+name: دانلود ویدیو با y2mate (جایگزین Cobalt)
 
 on:
   workflow_dispatch:
@@ -6,7 +6,6 @@ on:
       video_url:
         description: 'لینک ویدیوی یوتیوب'
         required: true
-        default: 'https://youtu.be/6Zy5VLcEbZc'
       quality:
         description: 'کیفیت (480/720)'
         required: true
@@ -24,92 +23,101 @@ jobs:
       
       - name: نصب ابزارها
         run: |
-          pip install requests
-          sudo apt-get install -y jq
+          pip install requests beautifulsoup4
       
-      - name: دریافت لینک مستقیم از Cobalt API
-        id: cobalt
+      - name: دریافت لینک با y2mate
         run: |
           python3 << EOF
           import requests
+          import re
           import json
+          from urllib.parse import quote
           
           video_url = "${{ inputs.video_url }}"
           quality = "${{ inputs.quality }}"
           
-          print(f"🔍 در حال ارسال درخواست به Cobalt API...")
-          print(f"📹 ویدیو: {video_url}")
-          print(f"🎯 کیفیت: {quality}p")
+          print(f"🔍 در حال ارسال درخواست به y2mate...")
           
-          response = requests.post(
-              "https://api.cobalt.tools/api/json",
-              json={
-                  "url": video_url,
-                  "vQuality": quality,
-                  "vCodec": "h264",
-                  "isAudioOnly": False,
-                  "isTTFullAudio": False,
-                  "isNoDither": True
-              },
-              headers={
-                  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                  "Accept": "application/json",
-                  "Content-Type": "application/json"
-              },
-              timeout=60
-          )
+          # مرحله 1: دریافت صفحه اول
+          session = requests.Session()
+          session.headers.update({
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+          })
+          
+          # مرحله 2: ارسال لینک به API
+          api_url = "https://www.y2mate.com/mates/en68/analyze/ajax"
+          response = session.post(api_url, data={
+              'url': video_url,
+              'q_auto': 0,
+              'ajax': 1
+          })
           
           if response.status_code == 200:
               data = response.json()
-              status = data.get("status")
+              print(f"✅ پاسخ دریافت شد")
               
-              if status == "redirect" and data.get("url"):
-                  direct_url = data["url"]
-                  print(f"\n✅ لینک مستقیم دریافت شد!")
-                  print(f"🔗 {direct_url}")
-                  
-                  # ذخیره لینک در فایل
-                  with open("direct_link.txt", "w") as f:
-                      f.write(direct_url)
-                  print(f"\n💾 لینک در فایل direct_link.txt ذخیره شد")
-                  
-              elif status == "error":
-                  print(f"❌ خطای Cobalt: {data.get('text')}")
-                  exit(1)
+              # استخراج ID ویدیو
+              video_id = video_url.split('/')[-1].split('?')[0]
+              print(f"📹 ویدیو ID: {video_id}")
+              
+              # کیفیت رو تعیین کن
+              quality_map = {
+                  '720': '18',
+                  '480': '18'  # فرمت MP4
+              }
+              itag = quality_map.get(quality, '18')
+              
+              # ساخت لینک مستقیم (از طریق پردازش دوم y2mate)
+              convert_url = "https://www.y2mate.com/mates/convertV2/index"
+              convert_data = {
+                  'vid': video_id,
+                  'k': itag,
+                  'ajax': 1
+              }
+              
+              convert_resp = session.post(convert_url, data=convert_data)
+              if convert_resp.status_code == 200:
+                  convert_json = convert_resp.json()
+                  if convert_json.get('status') == 'ok':
+                      # استخراج لینک دانلود
+                      html_content = convert_json.get('result', '')
+                      match = re.search(r'href="([^"]+)"', html_content)
+                      if match:
+                          direct_link = match.group(1)
+                          print(f"\n✅ لینک مستقیم:\n{direct_link}")
+                          
+                          with open("direct_link.txt", "w") as f:
+                              f.write(direct_link)
+                          
+                          # حالا دانلود کن
+                          import subprocess
+                          subprocess.run(['wget', '--no-check-certificate', '-O', 'video.mp4', direct_link])
+                      else:
+                          print("❌ لینک پیدا نشد")
+                  else:
+                      print(f"❌ خطا در تبدیل: {convert_json}")
               else:
-                  print(f"❌ پاسخ غیرمنتظره: {data}")
-                  exit(1)
+                  print(f"❌ خطا در تبدیل: {convert_resp.status_code}")
           else:
-              print(f"❌ خطای اتصال به Cobalt: {response.status_code}")
-              exit(1)
+              print(f"❌ خطا: {response.status_code}")
           EOF
       
-      - name: دانلود ویدیو با لینک مستقیم
+      - name: زیپ و آپلود
+        if: success()
         run: |
-          if [ -f "direct_link.txt" ]; then
-            LINK=$(cat direct_link.txt)
-            echo "📥 در حال دانلود ویدیو..."
-            wget --no-check-certificate -O "video.mp4" "$LINK"
-            echo "✅ ویدیو دانلود شد"
-            ls -lh video.mp4
+          if [ -f "video.mp4" ]; then
+            mkdir -p uploaded_videos
+            TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+            zip "video_${TIMESTAMP}.zip" video.mp4
+            cp "video_${TIMESTAMP}.zip" uploaded_videos/
+            
+            git config user.name "github-actions[bot]"
+            git config user.email "actions@github.com"
+            git add uploaded_videos/
+            git commit -m "Add video from ${{ inputs.video_url }}" || echo "Nothing to commit"
+            git push
+            echo "✅ انجام شد!"
           else
-            echo "❌ فایل لینک پیدا نشد"
+            echo "❌ فایل ویدیو وجود ندارد"
             exit 1
           fi
-      
-      - name: زیپ و آپلود به ریپازیتوری
-        run: |
-          mkdir -p uploaded_videos
-          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-          ZIP_NAME="video_${TIMESTAMP}.zip"
-          
-          zip "$ZIP_NAME" video.mp4
-          cp "$ZIP_NAME" "uploaded_videos/"
-          
-          git config user.name "github-actions[bot]"
-          git config user.email "actions@github.com"
-          git add uploaded_videos/
-          git commit -m "Add video from ${{ inputs.video_url }}" || echo "Nothing to commit"
-          git push
-          
-          echo "✅ فایل نهایی: uploaded_videos/$ZIP_NAME"
