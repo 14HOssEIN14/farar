@@ -19,7 +19,7 @@ jobs:
       - name: نصب yt-dlp
         run: |
           pip install --upgrade yt-dlp
-          pip instaall moabb
+          pip install moabb
       - name: دریافت لینک مستقیم
         id: getlink
         run: |
