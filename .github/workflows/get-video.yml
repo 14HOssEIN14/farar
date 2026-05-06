@@ -1,126 +1,57 @@
-name: دانلود و تقسیم ویدیو از یوتیوب
+import os
+import zipfile
+from pathlib import Path
 
-on:
-  workflow_dispatch:
-    inputs:
-      video_url:
-        description: 'لینک ویدیوی یوتیوب'
-        required: true
-        default: 'https://youtu.be/dQw4w9WgXcQ'
-      quality:
-        description: 'کیفیت (480 یا 720)'
-        required: true
-        default: '720'
-
-jobs:
-  download-split-upload:
-    runs-on: ubuntu-latest
+def extract_split_video(folder_path):
+    """
+    استخراج خودکار ویدیو از فایل‌های اسپلیت شده
     
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-      
-      - name: Install yt-dlp
-        run: |
-          pip install yt-dlp
-      
-      - name: دانلود ویدیو از یوتیوب
-        run: |
-          mkdir -p download
-          yt-dlp -f "best[height<=${{ inputs.quality }}]" \
-                 -o "download/video.%(ext)s" \
-                 "${{ inputs.video_url }}"
-          
-          echo "✅ ویدیو دانلود شد"
-          ls -lh download/
-      
-      - name: شناسایی فرمت ویدیو
-        id: video_info
-        run: |
-          cd download
-          VIDEO_FILE=$(ls -1 | head -1)
-          echo "video_file=$VIDEO_FILE" >> $GITHUB_OUTPUT
-          echo "✅ فایل ویدیو: $VIDEO_FILE"
-          
-          # گرفتن حجم فایل
-          SIZE=$(stat -c%s "$VIDEO_FILE")
-          echo "file_size=$SIZE" >> $GITHUB_OUTPUT
-          echo "📏 حجم فایل: $((SIZE/1024/1024)) MB"
-      
-      - name: ایجاد پوشه خروجی
-        run: |
-          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-          echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
-          mkdir -p "chunks/$TIMESTAMP"
-          echo "✅ پوشه ایجاد شد: chunks/$TIMESTAMP"
-      
-      - name: اسپلیت فایل به بخش‌های ۵۰ مگابایتی
-        run: |
-          TIMESTAMP="${{ steps.timestamp.outputs.timestamp || github.run_id }}"
-          VIDEO_FILE="download/${{ steps.video_info.outputs.video_file }}"
-          OUTPUT_DIR="chunks/$TIMESTAMP"
-          
-          # اسپلیت با split (هر بخش 50MB)
-          split -b 50M "$VIDEO_FILE" "$OUTPUT_DIR/part_" -a 3 --additional-suffix=".part"
-          
-          # ایجاد manifest.json
-          cd "$OUTPUT_DIR"
-          echo '{"original_file": "${{ steps.video_info.outputs.video_file }}", "chunk_size": 52428800, "timestamp": "'"$TIMESTAMP"'", "chunks": [' > manifest.json
-          
-          CHUNKS=""
-          for file in $(ls -1 part_*.part | sort); do
-            if [ -n "$CHUNKS" ]; then
-              CHUNKS="$CHUNKS, "
-            fi
-            CHUNKS="$CHUNKS\"$file\""
-          done
-          echo "$CHUNKS]}" >> manifest.json
-          
-          echo "✅ فایل به بخش‌های زیر تقسیم شد:"
-          ls -lh *.part
-          echo ""
-          echo "📄 manifest.json ایجاد شد"
-          cd ../..
-          
-          echo "output_dir=$OUTPUT_DIR" >> $GITHUB_OUTPUT
-      
-      - name: زیپ کردن پوشه بخش‌ها
-        run: |
-          ZIP_NAME="video_chunks_$(date +%Y%m%d_%H%M%S).zip"
-          cd chunks
-          zip -r "../$ZIP_NAME" .
-          cd ..
-          echo "✅ فایل‌ها زیپ شدند: $ZIP_NAME"
-          echo "zip_name=$ZIP_NAME" >> $GITHUB_OUTPUT
-          ls -lh "$ZIP_NAME"
-      
-      - name: آپلود زیپ به ریپازیتوری (GitHub Release)
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: "video-chunks-$(date +%Y%m%d-%H%M%S)"
-          name: "بخش‌های ویدیو - $(date)"
-          body: |
-            ویدیو از لینک: ${{ inputs.video_url }}
-            کیفیت: ${{ inputs.quality }}p
-            تاریخ: $(date)
-          files: ${{ steps.zip_name.outputs.zip_name }}
-          generate_release_notes: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      
-      - name: آپلود به عنوان Artifact (پشتیبان)
-        uses: actions/upload-artifact@v4
-        with:
-          name: video-chunks-$(date +%Y%m%d-%H%M%S)
-          path: ${{ steps.zip_name.outputs.zip_name }}
-          retention-days: 90
+    Args:
+        folder_path: مسیر پوشه‌ای که فایل‌های part_*.zip توش هستن
+    
+    Returns:
+        مسیر فایل ویدیوی نهایی
+    """
+    folder = Path(folder_path)
+    
+    # پیدا کردن فایل‌های part
+    parts = sorted(folder.glob("part_*.zip"))
+    
+    if not parts:
+        print("❌ فایل part_*.zip پیدا نشد!")
+        return None
+    
+    print(f"🔍 پیدا شد {len(parts)} فایل part")
+    
+    # ترکیب کردن
+    merged_path = folder / "merged.zip"
+    with open(merged_path, 'wb') as outfile:
+        for part in parts:
+            print(f"  📦 خواندن: {part.name}")
+            with open(part, 'rb') as infile:
+                outfile.write(infile.read())
+    
+    print(f"✅ فایل‌ها ترکیب شدند: {merged_path}")
+    
+    # اکسترکت زیپ
+    extract_folder = folder / "extracted"
+    extract_folder.mkdir(exist_ok=True)
+    
+    with zipfile.ZipFile(merged_path, 'r') as zip_ref:
+        zip_ref.extractall(extract_folder)
+    
+    print(f"✅ فایل زیپ اکسترکت شد به: {extract_folder}")
+    
+    # پیدا کردن فایل ویدیو
+    video_files = list(extract_folder.glob("*.mp4"))
+    if video_files:
+        video_path = video_files[0]
+        print(f"🎬 ویدیو پیدا شد: {video_path}")
+        print(f"📏 حجم: {video_path.stat().st_size / (1024*1024):.2f} MB")
+        return video_path
+    
+    print("⚠️ فایل mp4 پیدا نشد!")
+    return None
 
-      - name: پاکسازی فایل‌های موقت
-        run: |
-          rm -rf download
-          echo "🧹 پاکسازی انجام شد"
+# استفاده:
+# extract_split_video("path/to/split_files/20260506_151300/")
