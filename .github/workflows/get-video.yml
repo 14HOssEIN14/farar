@@ -1,18 +1,19 @@
-name: دانلود ویدیو با y2mate (جایگزین Cobalt)
+name: دانلود و آپلود مستقیم فایل از لینک googlevideo
 
 on:
   workflow_dispatch:
     inputs:
-      video_url:
-        description: 'لینک ویدیوی یوتیوب'
+      direct_url:
+        description: 'لینک مستقیم googlevideo.com یا هر لینک مستقیم دیگر'
         required: true
-      quality:
-        description: 'کیفیت (480/720)'
+        default: 'https://rr3---sn-nv47zne7.googlevideo.com/videoplayback?expire=1778110111&ei=P3r7acvZIfODp-oP2cniiQ8&ip=5.217.187.90&id=o-AGqgFx45xV71dyHs0dmgWWB2nRIBnYpFNbsxNx1-gUHa&itag=136'
+      filename:
+        description: 'نام فایل خروجی (مثلاً video.mp4)'
         required: true
-        default: '720'
+        default: 'video.mp4'
 
 jobs:
-  download:
+  download-and-push:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -21,103 +22,46 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
       
-      - name: نصب ابزارها
+      - name: دانلود فایل از لینک مستقیم
         run: |
-          pip install requests beautifulsoup4
+          echo "📥 در حال دانلود از لینک..."
+          echo "🔗 آدرس: ${{ inputs.direct_url }}"
+          
+          # دانلود فایل با wget
+          wget --no-check-certificate \
+               --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
+               -O "${{ inputs.filename }}" \
+               "${{ inputs.direct_url }}"
+          
+          echo "✅ دانلود کامل شد"
+          ls -lh "${{ inputs.filename }}"
       
-      - name: دریافت لینک با y2mate
+      - name: ایجاد پوشه و کپی فایل
         run: |
-          python3 << EOF
-          import requests
-          import re
-          import json
-          from urllib.parse import quote
+          mkdir -p downloaded_videos
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
           
-          video_url = "${{ inputs.video_url }}"
-          quality = "${{ inputs.quality }}"
+          # اضافه کردن timestamp به نام فایل
+          BASENAME=$(basename "${{ inputs.filename }}" .mp4)
+          NEWNAME="${BASENAME}_${TIMESTAMP}.mp4"
           
-          print(f"🔍 در حال ارسال درخواست به y2mate...")
-          
-          # مرحله 1: دریافت صفحه اول
-          session = requests.Session()
-          session.headers.update({
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-          })
-          
-          # مرحله 2: ارسال لینک به API
-          api_url = "https://www.y2mate.com/mates/en68/analyze/ajax"
-          response = session.post(api_url, data={
-              'url': video_url,
-              'q_auto': 0,
-              'ajax': 1
-          })
-          
-          if response.status_code == 200:
-              data = response.json()
-              print(f"✅ پاسخ دریافت شد")
-              
-              # استخراج ID ویدیو
-              video_id = video_url.split('/')[-1].split('?')[0]
-              print(f"📹 ویدیو ID: {video_id}")
-              
-              # کیفیت رو تعیین کن
-              quality_map = {
-                  '720': '18',
-                  '480': '18'  # فرمت MP4
-              }
-              itag = quality_map.get(quality, '18')
-              
-              # ساخت لینک مستقیم (از طریق پردازش دوم y2mate)
-              convert_url = "https://www.y2mate.com/mates/convertV2/index"
-              convert_data = {
-                  'vid': video_id,
-                  'k': itag,
-                  'ajax': 1
-              }
-              
-              convert_resp = session.post(convert_url, data=convert_data)
-              if convert_resp.status_code == 200:
-                  convert_json = convert_resp.json()
-                  if convert_json.get('status') == 'ok':
-                      # استخراج لینک دانلود
-                      html_content = convert_json.get('result', '')
-                      match = re.search(r'href="([^"]+)"', html_content)
-                      if match:
-                          direct_link = match.group(1)
-                          print(f"\n✅ لینک مستقیم:\n{direct_link}")
-                          
-                          with open("direct_link.txt", "w") as f:
-                              f.write(direct_link)
-                          
-                          # حالا دانلود کن
-                          import subprocess
-                          subprocess.run(['wget', '--no-check-certificate', '-O', 'video.mp4', direct_link])
-                      else:
-                          print("❌ لینک پیدا نشد")
-                  else:
-                      print(f"❌ خطا در تبدیل: {convert_json}")
-              else:
-                  print(f"❌ خطا در تبدیل: {convert_resp.status_code}")
-          else:
-              print(f"❌ خطا: {response.status_code}")
-          EOF
+          cp "${{ inputs.filename }}" "downloaded_videos/$NEWNAME"
+          echo "✅ فایل در downloaded_videos/$NEWNAME ذخیره شد"
+          echo "new_filename=$NEWNAME" >> $GITHUB_OUTPUT
       
-      - name: زیپ و آپلود
-        if: success()
+      - name: Commit و Push به ریپازیتوری
         run: |
-          if [ -f "video.mp4" ]; then
-            mkdir -p uploaded_videos
-            TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-            zip "video_${TIMESTAMP}.zip" video.mp4
-            cp "video_${TIMESTAMP}.zip" uploaded_videos/
-            
-            git config user.name "github-actions[bot]"
-            git config user.email "actions@github.com"
-            git add uploaded_videos/
-            git commit -m "Add video from ${{ inputs.video_url }}" || echo "Nothing to commit"
-            git push
-            echo "✅ انجام شد!"
-          else
-            echo "❌ فایل ویدیو وجود ندارد"
-            exit 1
-          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add downloaded_videos/
+          git commit -m "Add video file from direct link" || echo "Nothing to commit"
+          git push
+          
+          echo "✅ فایل با موفقیت به ریپازیتوری推送 شد"
+      
+      - name: آپلود به عنوان Artifact (پشتیبان)
+        uses: actions/upload-artifact@v4
+        with:
+          name: downloaded-file
+          path: ${{ inputs.filename }}
+          retention-days: 30
