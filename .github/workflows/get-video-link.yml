@@ -1,56 +1,15 @@
-name: Get Direct Link via API
+name: Get Link
 
 on:
   workflow_dispatch:
     inputs:
       url:
-        description: 'YouTube URL'
+        description: 'لینک یوتیوب'
         required: true
 
 jobs:
-  get-link:
+  get:
     runs-on: ubuntu-latest
     steps:
-      - name: Install requests
-        run: pip install requests
-        
-      - name: Get direct download link
-        run: |
-          python -c "
-import requests, re, json
-
-video_url = '${{ inputs.url }}'
-
-# استفاده از API سرویس y2mate (بدون نیاز به کوکی)
-def get_y2mate_link(url, quality='720'):
-    try:
-        # مرحله اول: دریافت صفحه ویدیو
-        page = requests.get(f'https://www.y2mate.com/mates/en68/analyze/ajax', params={'url': url}, headers={'User-Agent': 'Mozilla/5.0'}).text
-        # اینجا کد کامل برای استخراج لینک مستقیم از y2mate نیاز است
-        # اما به دلیل پیچیدگی، بهتر است از روش جایگزین زیر استفاده کنیم:
-        return None
-    except:
-        return None
-
-# روش جایگزین ساده: استفاده از cobalt.tools API (بهترین گزینه)
-def get_cobalt_link(url):
-    api_url = 'https://api.cobalt.tools/api/json'
-    payload = {'url': url, 'downloadMode': 'mute'}
-    headers = {'Accept': 'application/json', 'Content-Type': 'application/json'}
-    response = requests.post(api_url, json=payload, headers=headers)
-    if response.status_code == 200:
-        data = response.json()
-        if 'url' in data:
-            return data['url']
-    return None
-
-link = get_cobalt_link(video_url)
-if link:
-    print(f'✅ لینک مستقیم:\n{link}')
-else:
-    print('❌ دریافت لینک ممکن نبود.')
-          "
-      
-      - name: Save link
-        run: |
-          echo "لینک در خروجی بالا موجود است."
+      - run: pip install yt-dlp
+      - run: yt-dlp -g -f "best[height<=720]" "${{ inputs.url }}"
