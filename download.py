@@ -68,7 +68,7 @@ def split_file(input_file, chunk_size_mb=50):
 
 def main():
     # Get file URL from environment variable
-    file_url = os.environ.get('https://github.com/microsoft/WSL/releases/download/2.7.1/wsl.2.7.1.0.arm64.msi')
+    file_url = os.environ.get('FILE_URL')
     if not file_url:
         raise ValueError("FILE_URL environment variable not set")
     
