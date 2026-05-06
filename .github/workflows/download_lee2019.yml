@@ -1,17 +1,22 @@
-name: Download Lee2019 MI and Push to Repo
+name: Download, Split, and Push to Main
 
 on:
   workflow_dispatch:
+    inputs:
+      file_url:
+        description: 'Direct URL of the file to download'
+        required: true
+        type: string
 
 jobs:
-  download-and-split:
+  split-and-push:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
     
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -19,16 +24,26 @@ jobs:
         python-version: '3.10'
     
     - name: Install dependencies
+      run: pip install requests
+    
+    - name: Download and split file
+      env:
+        FILE_URL: ${{ github.event.inputs.file_url }}
       run: |
-        pip install moabb mne numpy
+        python split_file.py
     
-    - name: Download and split dataset
-      run: python download.py
-    
-    - name: Commit and push chunks
+    - name: Commit and push to main
       run: |
         git config --global user.name 'github-actions[bot]'
         git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-        git add Lee2019_MI_splits/
-        git commit -m "Add Lee2019_MI dataset chunks" || echo "No changes"
-        git push
+        
+        # Create a timestamped folder to avoid conflicts
+        TIMESTAMP=$(date +'%Y%m%d_%H%M%S')
+        mkdir -p "archived_chunks/$TIMESTAMP"
+        mv chunks/* "archived_chunks/$TIMESTAMP/"
+        
+        git add archived_chunks/
+        git commit -m "Add file chunks from ${{ github.event.inputs.file_url }} (${TIMESTAMP})"
+        git push origin main
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
