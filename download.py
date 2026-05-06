@@ -1,91 +1,89 @@
-"""
-prepare_dataset.py
-Downloads Lee2019_MI (22 channels, 250Hz, 4s epochs),
-zips it, and splits into 100MB chunks for GitHub
-"""
-
-from moabb.datasets import Lee2019_MI
-from moabb.paradigms import MotorImagery
-import numpy as np
-import pickle
 import os
-import zipfile
-import shutil
+import requests
+import math
+from pathlib import Path
 
-# Settings
-OUTPUT_DIR = "Lee2019_MI_dataset"
-ZIP_NAME = "Lee2019_MI.zip"
-SPLIT_DIR = "Lee2019_MI_splits"
-CHUNK_SIZE = 100 * 1024 * 1024  # 100 MB
+def download_file(url, output_path):
+    """Download file from URL with progress indicator"""
+    print(f"Downloading from {url}")
+    response = requests.get(url, stream=True)
+    response.raise_for_status()
+    
+    total_size = int(response.headers.get('content-length', 0))
+    downloaded = 0
+    
+    with open(output_path, 'wb') as file:
+        for chunk in response.iter_content(chunk_size=8192):
+            file.write(chunk)
+            downloaded += len(chunk)
+            if total_size:
+                percent = (downloaded / total_size) * 100
+                print(f"\rDownloaded: {percent:.1f}%", end='')
+    print(f"\nDownloaded to {output_path}")
+    return output_path
 
-# Create directories
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-os.makedirs(SPLIT_DIR, exist_ok=True)
+def split_file(input_file, chunk_size_mb=50):
+    """Split file into chunks of specified size (in MB)"""
+    chunk_size = chunk_size_mb * 1024 * 1024  # Convert to bytes
+    file_size = os.path.getsize(input_file)
+    
+    print(f"File size: {file_size / (1024*1024):.2f} MB")
+    print(f"Splitting into {chunk_size_mb} MB chunks")
+    
+    num_chunks = math.ceil(file_size / chunk_size)
+    base_name = Path(input_file).stem
+    extension = Path(input_file).suffix
+    
+    chunks = []
+    with open(input_file, 'rb') as file:
+        for i in range(num_chunks):
+            chunk_filename = f"{base_name}.part{i+1:03d}{extension}"
+            chunk_path = Path("chunks") / chunk_filename
+            chunk_path.parent.mkdir(exist_ok=True)
+            
+            chunk_data = file.read(chunk_size)
+            with open(chunk_path, 'wb') as chunk_file:
+                chunk_file.write(chunk_data)
+            
+            chunk_size_mb_actual = len(chunk_data) / (1024*1024)
+            print(f"Created: {chunk_filename} ({chunk_size_mb_actual:.2f} MB)")
+            chunks.append(str(chunk_path))
+    
+    # Create manifest file
+    manifest = {
+        'original_file': input_file,
+        'original_size': file_size,
+        'chunk_size_mb': chunk_size_mb,
+        'num_chunks': num_chunks,
+        'chunks': [str(Path(c).name) for c in chunks]
+    }
+    
+    import json
+    manifest_path = Path("chunks") / "manifest.json"
+    with open(manifest_path, 'w') as f:
+        json.dump(manifest, f, indent=2)
+    
+    print(f"\nCreated manifest: {manifest_path}")
+    return chunks
 
-print("Initializing dataset...")
-dataset = Lee2019_MI()
-paradigm = MotorImagery(
-    fmin=4,      # 4 Hz bandpass
-    fmax=40,     # 40 Hz bandpass
-    tmin=0.0,    # start of trial
-    tmax=4.0,    # 4 second epochs
-    resample=250 # 250 Hz sampling
-)
+def main():
+    # Get file URL from environment variable
+    file_url = os.environ.get('https://github.com/microsoft/WSL/releases/download/2.7.1/wsl.2.7.1.0.arm64.msi')
+    if not file_url:
+        raise ValueError("FILE_URL environment variable not set")
+    
+    # Download the file
+    filename = file_url.split('/')[-1] or 'downloaded_file'
+    downloaded_file = download_file(file_url, filename)
+    
+    # Split into 50MB chunks
+    split_file(downloaded_file, chunk_size_mb=50)
+    
+    print("\n✅ File split successfully into chunks/ directory")
+    
+    # Optional: remove original file to save space
+    os.remove(downloaded_file)
+    print("Original file removed to save space")
 
-# Download subject by subject and save individually
-print("Downloading subjects...")
-for subject in range(1, 55):
-    try:
-        X, y, meta = paradigm.get_data(
-            dataset,
-            subjects=[subject]
-        )
-        
-        # Save each subject separately
-        subject_file = os.path.join(OUTPUT_DIR, f'subject_{subject:02d}.npz')
-        np.savez_compressed(
-            subject_file,
-            X=X,
-            y=y,
-            subject=subject
-        )
-        
-        print(f"Subject {subject:02d}/54: {X.shape} - Saved")
-        
-    except Exception as e:
-        print(f"Subject {subject:02d}: FAILED - {e}")
-
-# Also save metadata
-meta_file = os.path.join(OUTPUT_DIR, 'metadata.pkl')
-with open(meta_file, 'wb') as f:
-    pickle.dump({'n_subjects': 54, 'n_classes': 2, 'channels': 22, 'sr': 250}, f)
-
-print("\nCreating zip file...")
-# Create zip file
-with zipfile.ZipFile(ZIP_NAME, 'w', zipfile.ZIP_DEFLATED) as zipf:
-    for root, dirs, files in os.walk(OUTPUT_DIR):
-        for file in files:
-            file_path = os.path.join(root, file)
-            arcname = os.path.relpath(file_path, OUTPUT_DIR)
-            zipf.write(file_path, arcname)
-
-zip_size = os.path.getsize(ZIP_NAME) / (1024**2)
-print(f"Zip created: {zip_size:.2f} MB")
-
-# Split zip into 100MB chunks
-print(f"\nSplitting into 100MB chunks...")
-with open(ZIP_NAME, 'rb') as f:
-    chunk_num = 0
-    while True:
-        chunk = f.read(CHUNK_SIZE)
-        if not chunk:
-            break
-        chunk_num += 1
-        chunk_file = os.path.join(SPLIT_DIR, f'Lee2019_MI.zip.{chunk_num:03d}')
-        with open(chunk_file, 'wb') as chunk_f:
-            chunk_f.write(chunk)
-        chunk_size_mb = len(chunk) / (1024**2)
-        print(f"  Chunk {chunk_num:03d}: {chunk_size_mb:.2f} MB")
-
-print(f"\nDone! {chunk_num} chunks created in '{SPLIT_DIR}'")
-print("Push these files to GitHub and use merge script to reconstruct.")
+if __name__ == "__main__":
+    main()
