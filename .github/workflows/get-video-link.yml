@@ -1,4 +1,4 @@
-name: دریافت لینک مستقیم یوتیوب با Cobalt API
+name: دریافت لینک مستقیم یوتیوب (تضمینی)
 
 on:
   workflow_dispatch:
@@ -11,79 +11,62 @@ on:
         description: 'کیفیت (480 یا 720)'
         required: true
         default: '720'
-        type: choice
-        options:
-          - '480'
-          - '720'
 
 jobs:
-  get-link:
+  extract:
     runs-on: ubuntu-latest
     steps:
-      - name: دریافت لینک مستقیم
+      - name: نصب yt-dlp
         run: |
-          python3 << EOF
-          import requests
-          import json
-          import urllib3
+          pip install --upgrade yt-dlp
+          pip instaall moabb
+      - name: دریافت لینک مستقیم
+        id: getlink
+        run: |
+          VIDEO_URL="${{ inputs.video_url }}"
+          QUALITY="${{ inputs.quality }}"
           
-          # غیرفعال کردن هشدار SSL
-          urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+          echo "🔍 در حال پردازش: $VIDEO_URL"
+          echo "🎯 کیفیت درخواستی: ${QUALITY}p"
+          echo ""
           
-          video_url = "${{ inputs.video_url }}"
-          quality = "${{ inputs.quality }}"
+          # روش اول: تلاش با فرمت ساده
+          LINK=$(yt-dlp --no-check-certificate \
+                        --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
+                        --extractor-args "youtube:skip=webpage,player_client=android" \
+                        -f "best[height<=$QUALITY]" \
+                        -g "$VIDEO_URL" 2>/dev/null | head -1)
           
-          print(f"🔍 در حال دریافت لینک برای: {video_url}")
-          print(f"🎯 کیفیت: {quality}p")
-          print("")
+          if [ -z "$LINK" ]; then
+            echo "🔄 روش دوم را امتحان می‌کنم..."
+            # روش دوم: تفکیک ویدیو و صدا
+            LINK=$(yt-dlp --no-check-certificate \
+                          --user-agent "Mozilla/5.0" \
+                          -f "bestvideo[height<=$QUALITY]+bestaudio/best" \
+                          -g "$VIDEO_URL" 2>/dev/null | head -1)
+          fi
           
-          try:
-              response = requests.post(
-                  "https://api.cobalt.tools/api/json",
-                  json={
-                      "url": video_url,
-                      "vQuality": quality,
-                      "vCodec": "h264",
-                      "isAudioOnly": False
-                  },
-                  headers={
-                      "Accept": "application/json",
-                      "Content-Type": "application/json",
-                      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                  },
-                  verify=False,
-                  timeout=30
-              )
-              
-              if response.status_code == 200:
-                  data = response.json()
-                  status = data.get("status")
-                  
-                  if status == "redirect" and data.get("url"):
-                      print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                      print("✅ لینک مستقیم دانلود:")
-                      print(data["url"])
-                      print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                      
-                      # ذخیره لینک در فایل
-                      with open("direct_link.txt", "w") as f:
-                          f.write(data["url"])
-                      print("💾 لینک در فایل direct_link.txt ذخیره شد")
-                      
-                  elif status == "error":
-                      print(f"❌ خطای سرویس: {data.get('text')}")
-                  else:
-                      print(f"❌ پاسخ غیرمنتظره: {data}")
-              else:
-                  print(f"❌ خطای اتصال: {response.status_code}")
-                  
-          except Exception as e:
-              print(f"❌ خطا: {e}")
-          EOF
+          if [ -n "$LINK" ]; then
+            echo "✅ لینک دریافت شد!"
+            echo "LINK=$LINK" >> $GITHUB_OUTPUT
+            echo "$LINK" > direct_link.txt
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "$LINK"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          else
+            echo "❌ دریافت لینک مقدور نیست. ویدیو احتمالاً خصوصی یا نیاز به احراز هویت دارد."
+            echo "LINK=ERROR" >> $GITHUB_OUTPUT
+            echo "خطا" > direct_link.txt
+          fi
       
-      - name: آپلود فایل لینک
+      - name: آپلود خروجی
         uses: actions/upload-artifact@v4
         with:
-          name: لینک-مستقیم
+          name: لینک-ویدیو
           path: direct_link.txt
           retention-days: 7
+      
+      - name: نمایش لینک در لاگ
+        if: steps.getlink.outputs.LINK != 'ERROR'
+        run: |
+          echo "::notice title=لینک دانلود مستقیم::${{ steps.getlink.outputs.LINK }}"
