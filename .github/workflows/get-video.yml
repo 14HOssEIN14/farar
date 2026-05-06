@@ -1,0 +1,126 @@
+name: دانلود و تقسیم ویدیو از یوتیوب
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: 'لینک ویدیوی یوتیوب'
+        required: true
+        default: 'https://youtu.be/dQw4w9WgXcQ'
+      quality:
+        description: 'کیفیت (480 یا 720)'
+        required: true
+        default: '720'
+
+jobs:
+  download-split-upload:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      
+      - name: Install yt-dlp
+        run: |
+          pip install yt-dlp
+      
+      - name: دانلود ویدیو از یوتیوب
+        run: |
+          mkdir -p download
+          yt-dlp -f "best[height<=${{ inputs.quality }}]" \
+                 -o "download/video.%(ext)s" \
+                 "${{ inputs.video_url }}"
+          
+          echo "✅ ویدیو دانلود شد"
+          ls -lh download/
+      
+      - name: شناسایی فرمت ویدیو
+        id: video_info
+        run: |
+          cd download
+          VIDEO_FILE=$(ls -1 | head -1)
+          echo "video_file=$VIDEO_FILE" >> $GITHUB_OUTPUT
+          echo "✅ فایل ویدیو: $VIDEO_FILE"
+          
+          # گرفتن حجم فایل
+          SIZE=$(stat -c%s "$VIDEO_FILE")
+          echo "file_size=$SIZE" >> $GITHUB_OUTPUT
+          echo "📏 حجم فایل: $((SIZE/1024/1024)) MB"
+      
+      - name: ایجاد پوشه خروجی
+        run: |
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
+          mkdir -p "chunks/$TIMESTAMP"
+          echo "✅ پوشه ایجاد شد: chunks/$TIMESTAMP"
+      
+      - name: اسپلیت فایل به بخش‌های ۵۰ مگابایتی
+        run: |
+          TIMESTAMP="${{ steps.timestamp.outputs.timestamp || github.run_id }}"
+          VIDEO_FILE="download/${{ steps.video_info.outputs.video_file }}"
+          OUTPUT_DIR="chunks/$TIMESTAMP"
+          
+          # اسپلیت با split (هر بخش 50MB)
+          split -b 50M "$VIDEO_FILE" "$OUTPUT_DIR/part_" -a 3 --additional-suffix=".part"
+          
+          # ایجاد manifest.json
+          cd "$OUTPUT_DIR"
+          echo '{"original_file": "${{ steps.video_info.outputs.video_file }}", "chunk_size": 52428800, "timestamp": "'"$TIMESTAMP"'", "chunks": [' > manifest.json
+          
+          CHUNKS=""
+          for file in $(ls -1 part_*.part | sort); do
+            if [ -n "$CHUNKS" ]; then
+              CHUNKS="$CHUNKS, "
+            fi
+            CHUNKS="$CHUNKS\"$file\""
+          done
+          echo "$CHUNKS]}" >> manifest.json
+          
+          echo "✅ فایل به بخش‌های زیر تقسیم شد:"
+          ls -lh *.part
+          echo ""
+          echo "📄 manifest.json ایجاد شد"
+          cd ../..
+          
+          echo "output_dir=$OUTPUT_DIR" >> $GITHUB_OUTPUT
+      
+      - name: زیپ کردن پوشه بخش‌ها
+        run: |
+          ZIP_NAME="video_chunks_$(date +%Y%m%d_%H%M%S).zip"
+          cd chunks
+          zip -r "../$ZIP_NAME" .
+          cd ..
+          echo "✅ فایل‌ها زیپ شدند: $ZIP_NAME"
+          echo "zip_name=$ZIP_NAME" >> $GITHUB_OUTPUT
+          ls -lh "$ZIP_NAME"
+      
+      - name: آپلود زیپ به ریپازیتوری (GitHub Release)
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: "video-chunks-$(date +%Y%m%d-%H%M%S)"
+          name: "بخش‌های ویدیو - $(date)"
+          body: |
+            ویدیو از لینک: ${{ inputs.video_url }}
+            کیفیت: ${{ inputs.quality }}p
+            تاریخ: $(date)
+          files: ${{ steps.zip_name.outputs.zip_name }}
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: آپلود به عنوان Artifact (پشتیبان)
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-chunks-$(date +%Y%m%d-%H%M%S)
+          path: ${{ steps.zip_name.outputs.zip_name }}
+          retention-days: 90
+
+      - name: پاکسازی فایل‌های موقت
+        run: |
+          rm -rf download
+          echo "🧹 پاکسازی انجام شد"
