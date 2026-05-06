@@ -1,57 +1,116 @@
-import os
-import zipfile
-from pathlib import Path
+name: دانلود، زیپ، اسپلیت و آپلود به ریپازیتوری
 
-def extract_split_video(folder_path):
-    """
-    استخراج خودکار ویدیو از فایل‌های اسپلیت شده
-    
-    Args:
-        folder_path: مسیر پوشه‌ای که فایل‌های part_*.zip توش هستن
-    
-    Returns:
-        مسیر فایل ویدیوی نهایی
-    """
-    folder = Path(folder_path)
-    
-    # پیدا کردن فایل‌های part
-    parts = sorted(folder.glob("part_*.zip"))
-    
-    if not parts:
-        print("❌ فایل part_*.zip پیدا نشد!")
-        return None
-    
-    print(f"🔍 پیدا شد {len(parts)} فایل part")
-    
-    # ترکیب کردن
-    merged_path = folder / "merged.zip"
-    with open(merged_path, 'wb') as outfile:
-        for part in parts:
-            print(f"  📦 خواندن: {part.name}")
-            with open(part, 'rb') as infile:
-                outfile.write(infile.read())
-    
-    print(f"✅ فایل‌ها ترکیب شدند: {merged_path}")
-    
-    # اکسترکت زیپ
-    extract_folder = folder / "extracted"
-    extract_folder.mkdir(exist_ok=True)
-    
-    with zipfile.ZipFile(merged_path, 'r') as zip_ref:
-        zip_ref.extractall(extract_folder)
-    
-    print(f"✅ فایل زیپ اکسترکت شد به: {extract_folder}")
-    
-    # پیدا کردن فایل ویدیو
-    video_files = list(extract_folder.glob("*.mp4"))
-    if video_files:
-        video_path = video_files[0]
-        print(f"🎬 ویدیو پیدا شد: {video_path}")
-        print(f"📏 حجم: {video_path.stat().st_size / (1024*1024):.2f} MB")
-        return video_path
-    
-    print("⚠️ فایل mp4 پیدا نشد!")
-    return None
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: 'لینک ویدیوی یوتیوب'
+        required: true
+      quality:
+        description: 'کیفیت (480 یا 720)'
+        required: true
+        default: '720'
 
-# استفاده:
-# extract_split_video("path/to/split_files/20260506_151300/")
+jobs:
+  process:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      
+      - name: Install yt-dlp
+        run: pip install yt-dlp
+      
+      - name: دانلود ویدیو
+        run: |
+          yt-dlp -f "best[height<=${{ inputs.quality }}]" \
+                 -o "video.mp4" \
+                 "${{ inputs.video_url }}"
+          echo "✅ ویدیو دانلود شد"
+          ls -lh video.mp4
+      
+      - name: محاسبه حجم فایل
+        id: size
+        run: |
+          SIZE=$(stat -c%s "video.mp4")
+          SIZE_MB=$((SIZE / 1024 / 1024))
+          echo "size_mb=$SIZE_MB" >> $GITHUB_OUTPUT
+          echo "حجم فایل: $SIZE_MB MB"
+      
+      - name: زیپ کردن ویدیو
+        run: |
+          zip video.zip video.mp4
+          echo "✅ ویدیو زیپ شد"
+          ls -lh video.zip
+      
+      - name: بررسی حجم و تصمیم‌گیری
+        id: decision
+        run: |
+          ZIP_SIZE=$(stat -c%s "video.zip")
+          ZIP_MB=$((ZIP_SIZE / 1024 / 1024))
+          echo "حجم فایل زیپ شده: $ZIP_MB MB"
+          
+          if [ $ZIP_MB -le 50 ]; then
+            echo "📦 حجم کمتر از 50MB - فقط زیپ و آپلود مستقیم"
+            echo "action=direct" >> $GITHUB_OUTPUT
+            cp video.zip "video_$(date +%Y%m%d_%H%M%S).zip"
+          else
+            echo "✂️ حجم بیشتر از 50MB - نیاز به اسپلیت"
+            echo "action=split" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: اسپلیت فایل زیپ به بخش‌های 50MB
+        if: steps.decision.outputs.action == 'split'
+        run: |
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
+          
+          mkdir -p "chunks_$TIMESTAMP"
+          cd "chunks_$TIMESTAMP"
+          
+          # اسپلیت فایل زیپ
+          split -b 50M ../video.zip "part_" -a 2 --additional-suffix=".zip"
+          
+          # درست کردن فایل راهنما
+          echo "این فایل‌ها بخش‌های یک فایل زیپ هستند." > README.txt
+          echo "برای ترکیب کردن از دستور زیر استفاده کن:" >> README.txt
+          echo "cat part_*.zip > merged.zip" >> README.txt
+          echo "" >> README.txt
+          echo "فایل اصلی: video.mp4" >> README.txt
+          echo "لینک اصلی: ${{ inputs.video_url }}" >> README.txt
+          
+          cd ..
+          
+          echo "✅ فایل زیپ به بخش‌های زیر تقسیم شد:"
+          ls -lh "chunks_$TIMESTAMP/"
+      
+      - name: آپلود به ریپازیتوری (حالت مستقیم)
+        if: steps.decision.outputs.action == 'direct'
+        run: |
+          mkdir -p uploaded_videos
+          cp video_*.zip uploaded_videos/
+          echo "✅ فایل به پوشه uploaded_videos اضافه شد"
+      
+      - name: آپلود به ریپازیتوری (حالت اسپلیت)
+        if: steps.decision.outputs.action == 'split'
+        run: |
+          TIMESTAMP="${{ steps.timestamp.outputs.timestamp }}"
+          mkdir -p "split_files/$TIMESTAMP"
+          cp -r "chunks_$TIMESTAMP"/* "split_files/$TIMESTAMP/"
+          echo "✅ فایل‌های اسپلیت شده به پوشه split_files/$TIMESTAMP اضافه شدند"
+      
+      - name: Commit و Push به ریپازیتوری
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Add video from ${{ inputs.video_url }}" || echo "Nothing to commit"
+          git push
