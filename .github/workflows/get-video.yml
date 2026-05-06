@@ -29,11 +29,38 @@ jobs:
       - name: Install yt-dlp
         run: pip install yt-dlp
       
-      - name: دانلود ویدیو
+      - name: آماده‌سازی کوکی (از فایل یا Secret)
         run: |
-          yt-dlp -f "best[height<=${{ inputs.quality }}]" \
-                 -o "video.mp4" \
-                 "${{ inputs.video_url }}"
+          # اگر فایل cookies.txt وجود داره، استفاده کن
+          # اگه نه، از Secret استفاده کن
+          if [ -f "cookies.txt" ]; then
+            echo "✅ کوکی از فایل cookies.txt بارگیری شد"
+          elif [ -n "${{ secrets.YT_COOKIES }}" ]; then
+            echo "${{ secrets.YT_COOKIES }}" > cookies.txt
+            echo "✅ کوکی از Secret بارگیری شد"
+          else
+            echo "⚠️ هیچ کوکی‌ای پیدا نشد! شاید برای ویدیوهای عمومی بدون لاگین هم کار کنه"
+          fi
+      
+      - name: دانلود ویدیو با کوکی (در صورت وجود)
+        run: |
+          # تلاش با کوکی اگه وجود داره
+          if [ -f "cookies.txt" ]; then
+            yt-dlp --cookies cookies.txt \
+                   --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
+                   --extractor-args "youtube:player_client=android,web" \
+                   -f "best[height<=${{ inputs.quality }}]" \
+                   -o "video.mp4" \
+                   "${{ inputs.video_url }}"
+          else
+            # تلاش بدون کوکی
+            yt-dlp --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
+                   --extractor-args "youtube:player_client=android,web" \
+                   -f "best[height<=${{ inputs.quality }}]" \
+                   -o "video.mp4" \
+                   "${{ inputs.video_url }}"
+          fi
+          
           echo "✅ ویدیو دانلود شد"
           ls -lh video.mp4
       
@@ -83,6 +110,8 @@ jobs:
           echo "این فایل‌ها بخش‌های یک فایل زیپ هستند." > README.txt
           echo "برای ترکیب کردن از دستور زیر استفاده کن:" >> README.txt
           echo "cat part_*.zip > merged.zip" >> README.txt
+          echo "" >> README.txt
+          echo "سپس با دستور unzip merged.zip فایل اصلی رو استخراج کن" >> README.txt
           echo "" >> README.txt
           echo "فایل اصلی: video.mp4" >> README.txt
           echo "لینک اصلی: ${{ inputs.video_url }}" >> README.txt
