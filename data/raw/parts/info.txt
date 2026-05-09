@@ -1,0 +1,5 @@
+Target size: 700 MB
+Actual size: 150.94 MB
+ZIP size: 45.88 MB
+Number of rows: 530,192
+Number of parts: 1
