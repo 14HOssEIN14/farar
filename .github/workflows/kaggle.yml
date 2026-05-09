@@ -1,47 +1,30 @@
-name: Upload LFS Files to Google Drive
+name: Upload to Google Drive
 
 on:
   workflow_dispatch:
 
 jobs:
-  upload-to-gdrive:
+  upload:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout repository with LFS
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
       with:
         lfs: true
-        token: ${{ secrets.GITHUB_TOKEN }}
     
     - name: Install gdrive
       run: |
-        wget https://github.com/glotlabs/gdrive/releases/download/3.9.2/gdrive_3.9.2_linux_x64.tar.gz
-        tar -xzf gdrive_3.9.2_linux_x64.tar.gz
+        wget https://github.com/prasmussen/gdrive/releases/download/2.1.1/gdrive_2.1.1_linux_amd64.tar.gz
+        tar -xzf gdrive_2.1.1_linux_amd64.tar.gz
         sudo mv gdrive /usr/local/bin/
-        chmod +x /usr/local/bin/gdrive
     
-    - name: Setup gdrive authentication
+    - name: Upload
       env:
         GDRIVE_TOKEN: ${{ secrets.GDRIVE_TOKEN }}
       run: |
         mkdir -p ~/.config/gdrive
         echo "$GDRIVE_TOKEN" > ~/.config/gdrive/token.json
-    
-    - name: Upload files to Google Drive
-      run: |
-        FOLDER_PATH="dataset_archive/20260509_101621"
-        TARGET_FOLDER_ID="1p3kb1H0sEz_DAnZIA0k4N4M3RC0ZaIVh"
-        
-        # Upload each part file
-        for file in $FOLDER_PATH/*.part*; do
-          if [ -f "$file" ]; then
-            echo "Uploading: $(basename $file)"
-            gdrive files upload \
-              --parent $TARGET_FOLDER_ID \
-              "$file"
-            echo "✅ Uploaded: $(basename $file)"
-          fi
+        cd dataset_archive/20260509_101621
+        for f in *.part*; do
+          gdrive upload --parent 1p3kb1H0sEz_DAnZIA0k4N4M3RC0ZaIVh "$f"
         done
-        
-        echo "🎉 All files uploaded successfully!"
