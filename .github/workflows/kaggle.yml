@@ -1,10 +1,10 @@
-name: Download and Split Raw Files
+name: Download, Re-zip, Split, and Push
 
 on:
   workflow_dispatch:
 
 jobs:
-  split-and-push:
+  process-and-push:
     runs-on: ubuntu-latest
     
     permissions:
@@ -13,8 +13,6 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-      with:
-        token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
     
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -24,64 +22,78 @@ jobs:
     - name: Install dependencies
       run: pip install kagglehub
     
-    - name: Download and split raw files
+    - name: Download and re-zip
       run: |
         import kagglehub
         import os
-        import subprocess
+        import zipfile
         
-        # Download dataset (this downloads the compressed/raw files)
-        print("Downloading...")
+        # Download (auto-extracts)
+        print("Downloading dataset...")
         path = kagglehub.dataset_download("mohammadaminorojloo/persian-twitter-tweets-20m")
-        print(f"Downloaded to: {path}")
+        print(f"Extracted files at: {path}")
         
-        # List what we got
+        # List extracted files
         files = os.listdir(path)
-        print(f"\nRaw files downloaded ({len(files)} files):")
+        print(f"\nExtracted {len(files)} files:")
+        total_size = 0
         for f in files:
             size = os.path.getsize(os.path.join(path, f)) / 1024 / 1024
+            total_size += size
             print(f"  {f}: {size:.2f} MB")
+        print(f"Total extracted size: {total_size:.2f} MB")
         
-        # Create chunks directory
+        # Zip ALL extracted files into ONE zip
+        print("\nCreating single zip archive...")
+        zip_path = 'persian_twitter_dataset.zip'
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for file in files:
+                file_path = os.path.join(path, file)
+                zipf.write(file_path, file)
+                print(f"  Added: {file}")
+        
+        zip_size = os.path.getsize(zip_path) / 1024 / 1024
+        print(f"\n✅ Created zip: {zip_path} ({zip_size:.2f} MB)")
+        
+      shell: python
+    
+    - name: Split zip into 50MB parts
+      run: |
+        import os
+        import subprocess
+        
+        # Split the zip file
+        print("Splitting zip into 50MB chunks...")
+        subprocess.run([
+            'split',
+            '-b', '50M',
+            '-d',
+            '--additional-suffix=.zip',
+            'persian_twitter_dataset.zip',
+            'dataset_part_'
+        ], check=True)
+        
+        # Rename parts nicely
         os.makedirs('chunks', exist_ok=True)
+        parts = sorted([f for f in os.listdir('.') if f.startswith('dataset_part_') and f.endswith('.zip')])
         
-        # Split each raw file into 50MB chunks (no extraction!)
-        chunk_id = 1
-        for raw_file in files:
-            raw_path = os.path.join(path, raw_file)
-            file_size = os.path.getsize(raw_path)
-            
-            print(f"\nSplitting: {raw_file} ({file_size / 1024 / 1024:.2f} MB)")
-            
-            # Split the raw file into 50MB parts
-            subprocess.run([
-                'split',
-                '-b', '50M',
-                '-d',
-                '--additional-suffix=.raw',
-                raw_path,
-                f'chunks/{raw_file}_part_'
-            ], check=True)
-            
-            # Rename parts with proper numbering
-            parts = sorted([f for f in os.listdir('chunks') if f.startswith(f'{raw_file}_part_')])
-            for i, part in enumerate(parts, 1):
-                old = os.path.join('chunks', part)
-                new = os.path.join('chunks', f'{raw_file}.part{i:03d}')
-                os.rename(old, new)
-                print(f"  → {new} ({os.path.getsize(new) / 1024 / 1024:.2f} MB)")
-            
-            chunk_id += 1
+        for i, part in enumerate(parts, 1):
+            old = part
+            new = f"chunks/persian_twitter_dataset.zip.part{i:03d}"
+            os.rename(old, new)
+            size = os.path.getsize(new) / 1024 / 1024
+            print(f"  → {new} ({size:.2f} MB)")
         
-        # Save manifest
-        with open('chunks/MANIFEST.txt', 'w') as f:
-            f.write("To reconstruct:\n")
-            f.write("cat *.part* > original_file\n")
-            for raw_file in files:
-                f.write(f"\n{raw_file}:\n")
-                f.write(f"  cat {raw_file}.part* > {raw_file}\n")
+        print(f"\n✅ Created {len(parts)} chunks")
         
-        print(f"\n✅ Split {len(files)} raw files into {len(os.listdir('chunks'))-1} chunks")
+        # Save reconstruction info
+        with open('chunks/RECONSTRUCT.txt', 'w') as f:
+            f.write("To reconstruct the original dataset:\n\n")
+            f.write("1. Download all .part files\n")
+            f.write("2. Run this command:\n")
+            f.write("   cat persian_twitter_dataset.zip.part* > persian_twitter_dataset.zip\n")
+            f.write("3. Unzip the file:\n")
+            f.write("   unzip persian_twitter_dataset.zip\n")
         
       shell: python
     
@@ -96,11 +108,11 @@ jobs:
         
         git pull origin main --rebase || true
         
-        mkdir -p "dataset_parts/$TIMESTAMP"
-        mv chunks/* "dataset_parts/$TIMESTAMP/"
+        mkdir -p "dataset_archive/$TIMESTAMP"
+        mv chunks/* "dataset_archive/$TIMESTAMP/"
         
-        git add dataset_parts/
-        git commit -m "Add raw dataset parts (50MB chunks) - ${TIMESTAMP}" || echo "No changes"
+        git add dataset_archive/
+        git commit -m "Add dataset zip split into 50MB parts - ${TIMESTAMP}" || echo "No changes"
         git push origin main
         
       env:
