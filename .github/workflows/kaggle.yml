@@ -1,0 +1,88 @@
+name: kaggle
+
+on:
+  workflow_dispatch:
+
+jobs:
+  download-and-split:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: |
+          pip install kagglehub pandas
+      
+      - name: Download and split dataset
+        run: |
+          import kagglehub
+          import pandas as pd
+          import os
+          import zipfile
+          
+          print("Downloading dataset...")
+          path = kagglehub.dataset_download("mohammadaminorojloo/persian-twitter-tweets-20m")
+          
+          print("Finding CSV file...")
+          csv_file = None
+          for root, dirs, files in os.walk(path):
+              for file in files:
+                  if file.endswith('.csv'):
+                      csv_file = os.path.join(root, file)
+                      break
+              if csv_file:
+                  break
+          
+          if not csv_file:
+              raise Exception("CSV file not found")
+          
+          print("Reading first 2,000,000 rows...")
+          df = pd.read_csv(csv_file, nrows=2000000)
+          
+          os.makedirs('data/raw', exist_ok=True)
+          sample_path = 'data/raw/sample_2m.csv'
+          df.to_csv(sample_path, index=False)
+          print(f"Saved: {sample_path}")
+          
+          print("Creating ZIP...")
+          zip_path = 'data/raw/sample_2m.zip'
+          with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+              zipf.write(sample_path, arcname='sample_2m.csv')
+          
+          print("Splitting into 50MB parts...")
+          os.makedirs('data/raw/parts', exist_ok=True)
+          
+          part_num = 1
+          with open(zip_path, 'rb') as f:
+              while True:
+                  chunk = f.read(50 * 1024 * 1024)
+                  if not chunk:
+                      break
+                  part_path = f'data/raw/parts/sample_2m.zip.part{part_num:03d}'
+                  with open(part_path, 'wb') as part_file:
+                      part_file.write(chunk)
+                  print(f"Created: {part_path}")
+                  part_num += 1
+          
+          os.remove(sample_path)
+          os.remove(zip_path)
+          
+          print(f"✅ Done. {part_num-1} parts created in data/raw/parts/")
+        shell: python
+      
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/raw/parts/
+          git commit -m "Add dataset split parts (2M rows, 50MB parts)" || echo "No changes to commit"
+          git push
