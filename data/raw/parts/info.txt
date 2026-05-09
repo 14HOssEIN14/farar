@@ -1,5 +1,0 @@
-Original CSV size: 150.94 MB
-Compressed size: 45.88 MB
-Number of rows: 530,192
-Number of parts: 1
-Columns: id, created_at, is_quote_status, text, text_tags, text_hashtags, media, likes, retweets, reply_count, quoted_count, location_tags, bookmarks, views
