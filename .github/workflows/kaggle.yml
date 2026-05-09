@@ -1,4 +1,4 @@
-name: kaggle
+name: Download 700MB Dataset
 
 on:
   workflow_dispatch:
@@ -22,17 +22,18 @@ jobs:
         run: |
           pip install kagglehub pandas
       
-      - name: Download and split dataset
+      - name: Download and split 700MB
         run: |
           import kagglehub
           import pandas as pd
           import os
           import zipfile
+          import math
           
-          print("Downloading dataset...")
+          print("📥 Downloading full dataset...")
           path = kagglehub.dataset_download("mohammadaminorojloo/persian-twitter-tweets-20m")
           
-          print("Finding CSV file...")
+          print("🔍 Finding CSV file...")
           csv_file = None
           for root, dirs, files in os.walk(path):
               for file in files:
@@ -45,44 +46,84 @@ jobs:
           if not csv_file:
               raise Exception("CSV file not found")
           
-          print("Reading first 2,000,000 rows...")
-          df = pd.read_csv(csv_file, nrows=2000000)
+          # تخمین حجم هر ردیف
+          print("📊 Estimating rows per MB...")
+          sample_df = pd.read_csv(csv_file, nrows=10000)
+          row_size_bytes = sample_df.memory_usage(deep=True).sum() / 10000
+          target_size_mb = 750  # هدف 700-800 مگ
+          target_rows = int((target_size_mb * 1024 * 1024) / row_size_bytes)
           
+          print(f"📏 Each row: ~{row_size_bytes/1024:.2f} KB")
+          print(f"🎯 Target: {target_size_mb} MB → {target_rows:,} rows")
+          
+          # خوندن به اندازه هدف
+          print(f"📖 Reading {target_rows:,} rows...")
+          df = pd.read_csv(csv_file, nrows=target_rows)
+          
+          actual_size_mb = df.memory_usage(deep=True).sum() / (1024 * 1024)
+          print(f"💾 Actual size in memory: {actual_size_mb:.2f} MB")
+          print(f"📊 Actual rows: {len(df):,}")
+          
+          # ذخیره CSV
           os.makedirs('data/raw', exist_ok=True)
-          sample_path = 'data/raw/sample_2m.csv'
-          df.to_csv(sample_path, index=False)
-          print(f"Saved: {sample_path}")
+          sample_path = 'data/raw/sample.csv'
+          df.to_csv(sample_path, index=False, encoding='utf-8')
           
-          print("Creating ZIP...")
-          zip_path = 'data/raw/sample_2m.zip'
+          csv_size_mb = os.path.getsize(sample_path) / (1024 * 1024)
+          print(f"📁 CSV file size: {csv_size_mb:.2f} MB")
+          
+          # ZIP کردن
+          print("🗜️ Creating ZIP...")
+          zip_path = 'data/raw/sample.zip'
           with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-              zipf.write(sample_path, arcname='sample_2m.csv')
+              zipf.write(sample_path, arcname='sample.csv')
           
-          print("Splitting into 50MB parts...")
+          zip_size_mb = os.path.getsize(zip_path) / (1024 * 1024)
+          print(f"🗜️ ZIP file size: {zip_size_mb:.2f} MB")
+          
+          # تقسیم به پارت‌های 50 مگی
+          print("✂️ Splitting into 50MB parts...")
           os.makedirs('data/raw/parts', exist_ok=True)
+          
+          # حذف پارت‌های قبلی
+          for old_part in os.listdir('data/raw/parts'):
+              os.remove(os.path.join('data/raw/parts', old_part))
           
           part_num = 1
           with open(zip_path, 'rb') as f:
               while True:
-                  chunk = f.read(50 * 1024 * 1024)
+                  chunk = f.read(50 * 1024 * 1024)  # 50MB
                   if not chunk:
                       break
-                  part_path = f'data/raw/parts/sample_2m.zip.part{part_num:03d}'
+                  part_path = f'data/raw/parts/sample.zip.part{part_num:03d}'
                   with open(part_path, 'wb') as part_file:
                       part_file.write(chunk)
-                  print(f"Created: {part_path}")
+                  print(f"✅ Part {part_num:03d}: {len(chunk)/(1024*1024):.2f} MB")
                   part_num += 1
           
+          total_parts = part_num - 1
+          print(f"\n🎉 Done! {total_parts} parts created (~{zip_size_mb:.2f} MB total)")
+          
+          # پاک کردن فایل‌های موقت
           os.remove(sample_path)
           os.remove(zip_path)
           
-          print(f"✅ Done. {part_num-1} parts created in data/raw/parts/")
+          # ذخیره اطلاعات در فایل متادیتا
+          with open('data/raw/parts/info.txt', 'w') as f:
+              f.write(f"Original CSV size: {csv_size_mb:.2f} MB\n")
+              f.write(f"Compressed size: {zip_size_mb:.2f} MB\n")
+              f.write(f"Number of rows: {len(df):,}\n")
+              f.write(f"Number of parts: {total_parts}\n")
+              f.write(f"Columns: {', '.join(df.columns.tolist())}\n")
+          
+          print("📄 Metadata saved to data/raw/parts/info.txt")
+          
         shell: python
       
-      - name: Commit and push
+      - name: Commit and push to repository
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/raw/parts/
-          git commit -m "Add dataset split parts (2M rows, 50MB parts)" || echo "No changes to commit"
+          git commit -m "Add dataset parts (~750MB compressed)" || echo "No changes to commit"
           git push
