@@ -31,149 +31,101 @@ jobs:
       run: |
         pip install kagglehub pandas pyarrow
     
-    - name: Download dataset and create chunks
+    - name: Download first N rows from dataset
       env:
         N_ROWS: ${{ github.event.inputs.rows_to_download }}
       run: |
         import kagglehub
         import pandas as pd
         import os
-        import glob
-        import json
-        import subprocess
-        import math
-        from datetime import datetime
         
-        print("=" * 50)
-        print("Step 1: Downloading dataset from Kaggle...")
-        print("=" * 50)
-        
+        # Download dataset
+        print("Downloading dataset from Kaggle...")
         path = kagglehub.dataset_download("mohammadaminorojloo/persian-twitter-tweets-20m")
         print(f"Dataset downloaded to: {path}")
         
-        # Find Parquet files
-        parquet_files = glob.glob(os.path.join(path, "*.parquet"))
+        # Find the main data file
+        files = os.listdir(path)
+        data_file = None
+        for file in files:
+            if file.endswith(('.csv', '.parquet', '.json')):
+                data_file = os.path.join(path, file)
+                break
         
-        if not parquet_files:
-            raise Exception("No parquet files found in downloaded dataset")
+        if not data_file:
+            raise Exception("No data file found in downloaded dataset")
         
-        print(f"Found parquet files: {parquet_files}")
-        
-        # Read first parquet file
-        data_file = parquet_files[0]
         print(f"Reading data from: {data_file}")
         
-        # Get total rows without loading entire file
-        import pyarrow.parquet as pq
-        parquet_file = pq.ParquetFile(data_file)
-        total_rows = parquet_file.metadata.num_rows
-        print(f"Total rows in file: {total_rows:,}")
+        # Read only first N rows based on file type
+        if data_file.endswith('.csv'):
+            df = pd.read_csv(data_file, nrows=int(os.environ['N_ROWS']))
+        elif data_file.endswith('.parquet'):
+            # Use pyarrow engine explicitly
+            df = pd.read_parquet(data_file, engine='pyarrow')
+            df = df.head(int(os.environ['N_ROWS']))
+        else:
+            df = pd.read_json(data_file, lines=True)
+            df = df.head(int(os.environ['N_ROWS']))
         
-        # Calculate rows to read
-        n_rows = int(os.environ['N_ROWS'])
-        rows_to_read = min(n_rows, total_rows)
-        print(f"Reading {rows_to_read:,} rows ({rows_to_read/total_rows*100:.1f}% of file)")
-        
-        # Read only the first N rows in chunks to manage memory
-        chunk_size = 100000  # 100k rows per chunk
-        chunks = []
-        rows_read = 0
-        
-        print("\nLoading data in chunks...")
-        for batch in parquet_file.iter_batches(batch_size=chunk_size):
-            if rows_read >= rows_to_read:
-                break
-            chunk = batch.to_pandas()
-            chunks.append(chunk)
-            rows_read += len(chunk)
-            print(f"  Loaded {rows_read:,} rows...")
-        
-        # Combine chunks
-        df = pd.concat(chunks, ignore_index=True) if chunks else pd.DataFrame()
-        
-        # Trim if we overshot
-        if len(df) > rows_to_read:
-            df = df.head(rows_to_read)
-        
-        print(f"\n✅ Successfully loaded {len(df):,} rows")
-        
-        # Save to CSV
+        # Save subset
         output_file = 'persian_tweets_subset.csv'
         df.to_csv(output_file, index=False)
         
-        file_size_mb = os.path.getsize(output_file) / 1024 / 1024
-        print(f"\n📁 Saved to {output_file}")
-        print(f"📊 File size: {file_size_mb:.2f} MB")
-        print(f"📋 Shape: {df.shape}")
-        print(f"📝 Columns: {list(df.columns)}")
+        print(f"Saved {len(df)} rows to {output_file}")
+        print(f"File size: {os.path.getsize(output_file) / 1024 / 1024:.2f} MB")
         
-        # Show sample
-        print("\n📄 Sample data:")
-        print(df.head(2))
-        
-        print("\n" + "=" * 50)
-        print("Step 2: Splitting into 50MB chunks...")
-        print("=" * 50)
+      shell: python
+    
+    - name: Split into 50MB chunks
+      run: |
+        import os
+        import math
+        import subprocess
         
         # Create chunks directory
         os.makedirs('chunks', exist_ok=True)
         
+        input_file = 'persian_tweets_subset.csv'
         chunk_size_mb = 50
         chunk_size_bytes = chunk_size_mb * 1024 * 1024
         
         # Get file size
-        file_size = os.path.getsize(output_file)
-        file_size_mb = file_size / 1024 / 1024
+        file_size = os.path.getsize(input_file)
         num_chunks = math.ceil(file_size / chunk_size_bytes)
         
-        print(f"Input file: {output_file}")
-        print(f"File size: {file_size_mb:.2f} MB")
-        print(f"Splitting into {num_chunks} chunks of ~{chunk_size_mb} MB each")
+        print(f"Splitting {file_size / 1024 / 1024:.2f}MB into {num_chunks} chunks of ~{chunk_size_mb}MB each")
         
-        # Split the file
+        # Split using command line
         subprocess.run([
             'split', 
             '-b', str(chunk_size_bytes), 
             '-d', 
             '--additional-suffix=.csv',
-            output_file, 
+            input_file, 
             'chunks/persian_tweets_part_'
         ], check=True)
         
-        # Rename chunks for better sorting
-        chunk_files = sorted([f for f in os.listdir('chunks') if f.endswith('.csv')])
-        for i, chunk in enumerate(chunk_files):
+        # Rename chunks to have proper numbering
+        chunks = sorted(os.listdir('chunks'))
+        for i, chunk in enumerate(chunks):
             old_path = os.path.join('chunks', chunk)
             new_path = os.path.join('chunks', f'persian_tweets_part_{i+1:03d}.csv')
             os.rename(old_path, new_path)
-            chunk_size_mb_actual = os.path.getsize(new_path) / 1024 / 1024
-            print(f"  Part {i+1:03d}: {chunk_size_mb_actual:.2f} MB")
+            print(f"Created: {new_path} ({os.path.getsize(new_path) / 1024 / 1024:.2f}MB)")
         
-        total_chunks = len(chunk_files)
-        print(f"\n✅ Successfully created {total_chunks} chunks in 'chunks/' directory")
+      shell: python
+    
+    - name: Create archive manifest
+      run: |
+        cat > chunks/README.md << 'EOF'
+        # Persian Twitter Dataset Chunks
         
-        print("\n" + "=" * 50)
-        print("Step 3: Creating metadata and documentation...")
-        print("=" * 50)
+        This dataset contains rows from the 
+        [Persian Twitter Tweets 20M](https://www.kaggle.com/datasets/mohammadaminorojloo/persian-twitter-tweets-20m) dataset.
         
-        # Create metadata
-        metadata = {
-            "dataset_name": "Persian Twitter Tweets",
-            "source": "https://www.kaggle.com/datasets/mohammadaminorojloo/persian-twitter-tweets-20m",
-            "rows_downloaded": rows_to_read,
-            "download_date": datetime.utcnow().isoformat(),
-            "original_format": "parquet",
-            "converted_format": "csv",
-            "total_chunks": total_chunks,
-            "chunk_size_mb": 50,
-            "original_file_size_mb": round(file_size_mb, 2),
-            "reconstruction_command": "cat chunks/persian_tweets_part_*.csv > reconstructed_dataset.csv"
-        }
+        ## How to reconstruct the original file
         
-        with open('chunks/metadata.json', 'w') as f:
-            json.dump(metadata, f, indent=2)
-        print("✅ Created metadata.json")
-        
-        # Create README
-        readme_content = f"""# Persian Twitter Dataset Chunks
-
+        ### Using command line:
+        ```bash
+        cat persian_tweets_part_*.csv > reconstructed_dataset.csv
