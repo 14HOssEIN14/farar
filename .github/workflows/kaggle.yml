@@ -1,4 +1,4 @@
-name: Download, Re-zip, Split, and Push
+name: Download, Re-zip, Split, and Push with LFS
 
 on:
   workflow_dispatch:
@@ -14,6 +14,12 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
     
+    - name: Set up Git LFS
+      run: |
+        git lfs install
+        git lfs track "*.part*"
+        git add .gitattributes
+    
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
@@ -28,32 +34,18 @@ jobs:
         import os
         import zipfile
         
-        # Download (auto-extracts)
         print("Downloading dataset...")
         path = kagglehub.dataset_download("mohammadaminorojloo/persian-twitter-tweets-20m")
-        print(f"Extracted files at: {path}")
         
-        # List extracted files
-        files = os.listdir(path)
-        print(f"\nExtracted {len(files)} files:")
-        total_size = 0
-        for f in files:
-            size = os.path.getsize(os.path.join(path, f)) / 1024 / 1024
-            total_size += size
-            print(f"  {f}: {size:.2f} MB")
-        print(f"Total extracted size: {total_size:.2f} MB")
-        
-        # Zip ALL extracted files into ONE zip
-        print("\nCreating single zip archive...")
+        # Zip all files
+        print("Creating single zip archive...")
         zip_path = 'persian_twitter_dataset.zip'
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            for file in files:
-                file_path = os.path.join(path, file)
-                zipf.write(file_path, file)
-                print(f"  Added: {file}")
+            for file in os.listdir(path):
+                zipf.write(os.path.join(path, file), file)
         
         zip_size = os.path.getsize(zip_path) / 1024 / 1024
-        print(f"\n✅ Created zip: {zip_path} ({zip_size:.2f} MB)")
+        print(f"✅ Created zip: {zip_path} ({zip_size:.2f} MB)")
         
       shell: python
     
@@ -62,38 +54,17 @@ jobs:
         import os
         import subprocess
         
-        # Split the zip file
-        print("Splitting zip into 50MB chunks...")
-        subprocess.run([
-            'split',
-            '-b', '50M',
-            '-d',
-            '--additional-suffix=.zip',
-            'persian_twitter_dataset.zip',
-            'dataset_part_'
-        ], check=True)
+        subprocess.run(['split', '-b', '50M', '-d', '--additional-suffix=.zip', 
+                       'persian_twitter_dataset.zip', 'dataset_part_'], check=True)
         
-        # Rename parts nicely
         os.makedirs('chunks', exist_ok=True)
-        parts = sorted([f for f in os.listdir('.') if f.startswith('dataset_part_') and f.endswith('.zip')])
+        import glob
+        parts = sorted(glob.glob('dataset_part_*.zip'))
         
         for i, part in enumerate(parts, 1):
-            old = part
-            new = f"chunks/persian_twitter_dataset.zip.part{i:03d}"
-            os.rename(old, new)
-            size = os.path.getsize(new) / 1024 / 1024
-            print(f"  → {new} ({size:.2f} MB)")
+            os.rename(part, f"chunks/persian_twitter_dataset.zip.part{i:03d}")
         
-        print(f"\n✅ Created {len(parts)} chunks")
-        
-        # Save reconstruction info
-        with open('chunks/RECONSTRUCT.txt', 'w') as f:
-            f.write("To reconstruct the original dataset:\n\n")
-            f.write("1. Download all .part files\n")
-            f.write("2. Run this command:\n")
-            f.write("   cat persian_twitter_dataset.zip.part* > persian_twitter_dataset.zip\n")
-            f.write("3. Unzip the file:\n")
-            f.write("   unzip persian_twitter_dataset.zip\n")
+        print(f"✅ Created {len(parts)} chunks")
         
       shell: python
     
@@ -102,7 +73,7 @@ jobs:
         git config --global user.name 'github-actions[bot]'
         git config --global user.email 'github-actions[bot]@users.noreply.github.com'
     
-    - name: Commit and push
+    - name: Commit and push with LFS
       run: |
         TIMESTAMP=$(date +'%Y%m%d_%H%M%S')
         
@@ -111,8 +82,12 @@ jobs:
         mkdir -p "dataset_archive/$TIMESTAMP"
         mv chunks/* "dataset_archive/$TIMESTAMP/"
         
+        # Track part files with LFS
+        git lfs track "dataset_archive/**/*.part*"
+        git add .gitattributes
+        
         git add dataset_archive/
-        git commit -m "Add dataset zip split into 50MB parts - ${TIMESTAMP}" || echo "No changes"
+        git commit -m "Add dataset parts (LFS) - ${TIMESTAMP}"
         git push origin main
         
       env:
