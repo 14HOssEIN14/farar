@@ -1,94 +1,47 @@
-name: Download, Re-zip, Split, and Push with LFS
+name: Upload LFS Files to Google Drive
 
 on:
   workflow_dispatch:
 
 jobs:
-  process-and-push:
+  upload-to-gdrive:
     runs-on: ubuntu-latest
     
-    permissions:
-      contents: write
-    
     steps:
-    - name: Checkout repository
+    - name: Checkout repository with LFS
       uses: actions/checkout@v4
-    
-    - name: Set up Git LFS
-      run: |
-        git lfs install
-        git lfs track "*.part*"
-        git add .gitattributes
-    
-    - name: Set up Python
-      uses: actions/setup-python@v5
       with:
-        python-version: '3.10'
+        lfs: true
+        token: ${{ secrets.GITHUB_TOKEN }}
     
-    - name: Install dependencies
-      run: pip install kagglehub
-    
-    - name: Download and re-zip
+    - name: Install gdrive
       run: |
-        import kagglehub
-        import os
-        import zipfile
-        
-        print("Downloading dataset...")
-        path = kagglehub.dataset_download("mohammadaminorojloo/persian-twitter-tweets-20m")
-        
-        # Zip all files
-        print("Creating single zip archive...")
-        zip_path = 'persian_twitter_dataset.zip'
-        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            for file in os.listdir(path):
-                zipf.write(os.path.join(path, file), file)
-        
-        zip_size = os.path.getsize(zip_path) / 1024 / 1024
-        print(f"✅ Created zip: {zip_path} ({zip_size:.2f} MB)")
-        
-      shell: python
+        wget https://github.com/glotlabs/gdrive/releases/download/3.9.2/gdrive_3.9.2_linux_x64.tar.gz
+        tar -xzf gdrive_3.9.2_linux_x64.tar.gz
+        sudo mv gdrive /usr/local/bin/
+        chmod +x /usr/local/bin/gdrive
     
-    - name: Split zip into 50MB parts
-      run: |
-        import os
-        import subprocess
-        
-        subprocess.run(['split', '-b', '50M', '-d', '--additional-suffix=.zip', 
-                       'persian_twitter_dataset.zip', 'dataset_part_'], check=True)
-        
-        os.makedirs('chunks', exist_ok=True)
-        import glob
-        parts = sorted(glob.glob('dataset_part_*.zip'))
-        
-        for i, part in enumerate(parts, 1):
-            os.rename(part, f"chunks/persian_twitter_dataset.zip.part{i:03d}")
-        
-        print(f"✅ Created {len(parts)} chunks")
-        
-      shell: python
-    
-    - name: Configure Git
-      run: |
-        git config --global user.name 'github-actions[bot]'
-        git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-    
-    - name: Commit and push with LFS
-      run: |
-        TIMESTAMP=$(date +'%Y%m%d_%H%M%S')
-        
-        git pull origin main --rebase || true
-        
-        mkdir -p "dataset_archive/$TIMESTAMP"
-        mv chunks/* "dataset_archive/$TIMESTAMP/"
-        
-        # Track part files with LFS
-        git lfs track "dataset_archive/**/*.part*"
-        git add .gitattributes
-        
-        git add dataset_archive/
-        git commit -m "Add dataset parts (LFS) - ${TIMESTAMP}"
-        git push origin main
-        
+    - name: Setup gdrive authentication
       env:
-        GITHUB_TOKEN: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
+        GDRIVE_TOKEN: ${{ secrets.GDRIVE_TOKEN }}
+      run: |
+        mkdir -p ~/.config/gdrive
+        echo "$GDRIVE_TOKEN" > ~/.config/gdrive/token.json
+    
+    - name: Upload files to Google Drive
+      run: |
+        FOLDER_PATH="dataset_archive/20260509_101621"
+        TARGET_FOLDER_ID="1p3kb1H0sEz_DAnZIA0k4N4M3RC0ZaIVh"
+        
+        # Upload each part file
+        for file in $FOLDER_PATH/*.part*; do
+          if [ -f "$file" ]; then
+            echo "Uploading: $(basename $file)"
+            gdrive files upload \
+              --parent $TARGET_FOLDER_ID \
+              "$file"
+            echo "✅ Uploaded: $(basename $file)"
+          fi
+        done
+        
+        echo "🎉 All files uploaded successfully!"
