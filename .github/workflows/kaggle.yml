@@ -1,16 +1,10 @@
-name: Download Dataset and Split into 50MB Chunks
+name: Download and Split Raw Files
 
 on:
   workflow_dispatch:
-    inputs:
-      description:
-        description: 'Optional description for this download'
-        required: false
-        default: ''
-        type: string
 
 jobs:
-  download-split-push:
+  split-and-push:
     runs-on: ubuntu-latest
     
     permissions:
@@ -28,201 +22,86 @@ jobs:
         python-version: '3.10'
     
     - name: Install dependencies
-      run: |
-        pip install kagglehub
+      run: pip install kagglehub
     
-    - name: Download entire dataset
+    - name: Download and split raw files
       run: |
         import kagglehub
         import os
-        import shutil
-        
-        # Download dataset
-        print("Downloading dataset from Kaggle...")
-        path = kagglehub.dataset_download("mohammadaminorojloo/persian-twitter-tweets-20m")
-        print(f"Dataset downloaded to: {path}")
-        
-        # List all downloaded files
-        print("\nDownloaded files:")
-        total_size = 0
-        for root, dirs, files in os.walk(path):
-            for file in files:
-                file_path = os.path.join(root, file)
-                size = os.path.getsize(file_path)
-                total_size += size
-                print(f"  {file}: {size / 1024 / 1024:.2f} MB")
-        
-        print(f"\nTotal download size: {total_size / 1024 / 1024:.2f} MB")
-        
-        # Create a directory for the raw downloaded files
-        os.makedirs('downloaded_dataset', exist_ok=True)
-        
-        # Copy all files to working directory (preserving structure)
-        for root, dirs, files in os.walk(path):
-            for file in files:
-                src = os.path.join(root, file)
-                # Preserve relative path structure
-                rel_path = os.path.relpath(src, path)
-                dst = os.path.join('downloaded_dataset', rel_path)
-                os.makedirs(os.path.dirname(dst), exist_ok=True)
-                shutil.copy2(src, dst)
-                print(f"Copied: {rel_path}")
-        
-        print(f"\n✅ Dataset copied to 'downloaded_dataset/' directory")
-        
-      shell: python
-    
-    - name: Split all files into 50MB chunks
-      run: |
-        import os
         import subprocess
-        from pathlib import Path
+        
+        # Download dataset (this downloads the compressed/raw files)
+        print("Downloading...")
+        path = kagglehub.dataset_download("mohammadaminorojloo/persian-twitter-tweets-20m")
+        print(f"Downloaded to: {path}")
+        
+        # List what we got
+        files = os.listdir(path)
+        print(f"\nRaw files downloaded ({len(files)} files):")
+        for f in files:
+            size = os.path.getsize(os.path.join(path, f)) / 1024 / 1024
+            print(f"  {f}: {size:.2f} MB")
         
         # Create chunks directory
         os.makedirs('chunks', exist_ok=True)
         
-        chunk_size_mb = 50
-        chunk_size_bytes = chunk_size_mb * 1024 * 1024
-        
-        # Keep track of all chunks
-        manifest = []
-        chunk_counter = 1
-        
-        # Walk through all downloaded files
-        for root, dirs, files in os.walk('downloaded_dataset'):
-            for file in files:
-                file_path = os.path.join(root, file)
-                file_size = os.path.getsize(file_path)
-                
-                print(f"\nProcessing: {file_path} ({file_size / 1024 / 1024:.2f} MB)")
-                
-                if file_size <= chunk_size_bytes:
-                    # Small file: copy as-is
-                    output_name = f"chunk_{chunk_counter:04d}_{file}"
-                    output_path = os.path.join('chunks', output_name)
-                    import shutil
-                    shutil.copy2(file_path, output_path)
-                    manifest.append({
-                        'original_file': file,
-                        'original_path': file_path,
-                        'chunk_file': output_name,
-                        'chunk_size_mb': file_size / 1024 / 1024,
-                        'part_number': 1,
-                        'total_parts': 1
-                    })
-                    print(f"  → Copied as: {output_name} ({file_size / 1024 / 1024:.2f} MB)")
-                    chunk_counter += 1
-                else:
-                    # Large file: split into chunks
-                    # Get file extension
-                    file_ext = os.path.splitext(file)[1]
-                    base_name = os.path.splitext(file)[0]
-                    
-                    # Split the file
-                    subprocess.run([
-                        'split',
-                        '-b', str(chunk_size_bytes),
-                        '-d',
-                        '--additional-suffix=' + file_ext,
-                        file_path,
-                        f'chunks/chunk_{chunk_counter:04d}_{base_name}_part_'
-                    ], check=True)
-                    
-                    # Count how many parts were created
-                    part_files = sorted([f for f in os.listdir('chunks') if f.startswith(f'chunk_{chunk_counter:04d}_{base_name}_part_')])
-                    total_parts = len(part_files)
-                    
-                    # Update manifest and rename to proper numbering
-                    for i, part_file in enumerate(part_files, 1):
-                        old_path = os.path.join('chunks', part_file)
-                        new_name = f"chunk_{chunk_counter:04d}_{base_name}_part_{i:03d}{file_ext}"
-                        new_path = os.path.join('chunks', new_name)
-                        os.rename(old_path, new_path)
-                        
-                        manifest.append({
-                            'original_file': file,
-                            'original_path': file_path,
-                            'chunk_file': new_name,
-                            'chunk_size_mb': os.path.getsize(new_path) / 1024 / 1024,
-                            'part_number': i,
-                            'total_parts': total_parts
-                        })
-                        print(f"  → Created: {new_name} ({os.path.getsize(new_path) / 1024 / 1024:.2f} MB)")
-                    
-                    chunk_counter += 1
+        # Split each raw file into 50MB chunks (no extraction!)
+        chunk_id = 1
+        for raw_file in files:
+            raw_path = os.path.join(path, raw_file)
+            file_size = os.path.getsize(raw_path)
+            
+            print(f"\nSplitting: {raw_file} ({file_size / 1024 / 1024:.2f} MB)")
+            
+            # Split the raw file into 50MB parts
+            subprocess.run([
+                'split',
+                '-b', '50M',
+                '-d',
+                '--additional-suffix=.raw',
+                raw_path,
+                f'chunks/{raw_file}_part_'
+            ], check=True)
+            
+            # Rename parts with proper numbering
+            parts = sorted([f for f in os.listdir('chunks') if f.startswith(f'{raw_file}_part_')])
+            for i, part in enumerate(parts, 1):
+                old = os.path.join('chunks', part)
+                new = os.path.join('chunks', f'{raw_file}.part{i:03d}')
+                os.rename(old, new)
+                print(f"  → {new} ({os.path.getsize(new) / 1024 / 1024:.2f} MB)")
+            
+            chunk_id += 1
         
         # Save manifest
-        import json
-        with open('chunks/manifest.json', 'w') as f:
-            json.dump(manifest, f, indent=2)
+        with open('chunks/MANIFEST.txt', 'w') as f:
+            f.write("To reconstruct:\n")
+            f.write("cat *.part* > original_file\n")
+            for raw_file in files:
+                f.write(f"\n{raw_file}:\n")
+                f.write(f"  cat {raw_file}.part* > {raw_file}\n")
         
-        print(f"\n✅ Created {len(manifest)} chunks total")
-        print(f"✅ Manifest saved to chunks/manifest.json")
+        print(f"\n✅ Split {len(files)} raw files into {len(os.listdir('chunks'))-1} chunks")
         
       shell: python
     
-    - name: Create reconstruction script and README
+    - name: Configure Git
       run: |
-        cat > chunks/reconstruct.py << 'EOF'
-        #!/usr/bin/env python3
-        import os
-        import json
-        import shutil
-        from pathlib import Path
+        git config --global user.name 'github-actions[bot]'
+        git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+    
+    - name: Commit and push
+      run: |
+        TIMESTAMP=$(date +'%Y%m%d_%H%M%S')
         
-        # Load manifest
-        with open('manifest.json', 'r') as f:
-            manifest = json.load(f)
+        git pull origin main --rebase || true
         
-        # Create output directory
-        os.makedirs('reconstructed_dataset', exist_ok=True)
+        mkdir -p "dataset_parts/$TIMESTAMP"
+        mv chunks/* "dataset_parts/$TIMESTAMP/"
         
-        # Group chunks by original file
-        files_to_reconstruct = {}
-        for chunk in manifest:
-            orig_file = chunk['original_file']
-            if orig_file not in files_to_reconstruct:
-                files_to_reconstruct[orig_file] = []
-            files_to_reconstruct[orig_file].append(chunk)
+        git add dataset_parts/
+        git commit -m "Add raw dataset parts (50MB chunks) - ${TIMESTAMP}" || echo "No changes"
+        git push origin main
         
-        # Reconstruct each file
-        for orig_file, chunks in files_to_reconstruct.items():
-            if chunks[0]['total_parts'] == 1:
-                # Single chunk - just copy
-                src = chunks[0]['chunk_file']
-                dst = os.path.join('reconstructed_dataset', orig_file)
-                shutil.copy2(src, dst)
-                print(f"Reconstructed: {orig_file} (single file)")
-            else:
-                # Multi-part - concatenate
-                output_path = os.path.join('reconstructed_dataset', orig_file)
-                chunks_sorted = sorted(chunks, key=lambda x: x['part_number'])
-                
-                with open(output_path, 'wb') as outfile:
-                    for chunk in chunks_sorted:
-                        chunk_path = chunk['chunk_file']
-                        with open(chunk_path, 'rb') as infile:
-                            outfile.write(infile.read())
-                
-                print(f"Reconstructed: {orig_file} (from {len(chunks)} parts)")
-        
-        print("\n✅ All files reconstructed in 'reconstructed_dataset/' directory")
-        EOF
-        
-        cat > chunks/README.md << 'EOF'
-        # Persian Twitter Dataset - Split Archive
-        
-        This is the complete dataset from [Persian Twitter Tweets 20M](https://www.kaggle.com/datasets/mohammadaminorojloo/persian-twitter-tweets-20m)
-        split into 50MB chunks for GitHub storage.
-        
-        ## Original Dataset Info
-        
-        - **Source**: Kaggle - "Persian Twitter Tweets 20M"
-        - **Total Size**: ~4-7 GB (compressed/uncompressed)
-        - **Format**: Mixed (CSV, Parquet, etc.)
-        
-        ## How to Reconstruct the Dataset
-        
-        ### Automatic (Python):
-        ```bash
-        python reconstruct.py
+      env:
+        GITHUB_TOKEN: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
