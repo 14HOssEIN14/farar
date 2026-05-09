@@ -1,124 +1,174 @@
-name: Download Exact 700MB Dataset
+name: Download Persian Twitter Dataset and Split
 
 on:
   workflow_dispatch:
+    inputs:
+      rows_to_download:
+        description: 'Number of rows to download (approx 2M rows = 700MB)'
+        required: false
+        default: '2000000'
+        type: string
 
 jobs:
-  download-and-split:
+  download-split-push:
     runs-on: ubuntu-latest
+    
     permissions:
       contents: write
     
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-      
-      - name: Install dependencies
-        run: |
-          pip install kagglehub pandas
-      
-      - name: Download and split exact size
-        run: |
-          import kagglehub
-          import pandas as pd
-          import os
-          import zipfile
-          
-          print("📥 Downloading full dataset...")
-          path = kagglehub.dataset_download("mohammadaminorojloo/persian-twitter-tweets-20m")
-          
-          print("🔍 Finding CSV file...")
-          csv_file = None
-          for root, dirs, files in os.walk(path):
-              for file in files:
-                  if file.endswith('.csv'):
-                      csv_file = os.path.join(root, file)
-                      break
-              if csv_file:
-                  break
-          
-          # روش درست: خوندن تکه تکه تا برسیم به 700 مگ
-          os.makedirs('data/raw', exist_ok=True)
-          output_csv = 'data/raw/sample_700mb.csv'
-          
-          print("📖 Reading chunks until 700MB...")
-          chunk_size = 50000
-          total_rows = 0
-          target_bytes = 700 * 1024 * 1024  # 700MB
-          current_bytes = 0
-          
-          first_chunk = True
-          with open(output_csv, 'w', encoding='utf-8') as outfile:
-              for chunk in pd.read_csv(csv_file, chunksize=chunk_size):
-                  # نوشتن header فقط برای چانک اول
-                  if first_chunk:
-                      chunk.to_csv(outfile, index=False, encoding='utf-8')
-                      first_chunk = False
-                  else:
-                      chunk.to_csv(outfile, index=False, encoding='utf-8', header=False)
-                  
-                  total_rows += len(chunk)
-                  current_bytes = os.path.getsize(output_csv)
-                  
-                  print(f"   Rows: {total_rows:,} | Size: {current_bytes/(1024*1024):.1f} MB")
-                  
-                  if current_bytes >= target_bytes:
-                      print(f"✅ Reached target at {current_bytes/(1024*1024):.1f} MB")
-                      break
-          
-          print(f"\n📊 Final: {total_rows:,} rows, {current_bytes/(1024*1024):.1f} MB")
-          
-          # ZIP کردن
-          print("🗜️ Creating ZIP...")
-          zip_path = 'data/raw/sample_700mb.zip'
-          with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-              zipf.write(output_csv, arcname='sample_700mb.csv')
-          
-          zip_size = os.path.getsize(zip_path)
-          zip_size_mb = zip_size / (1024 * 1024)
-          print(f"🗜️ ZIP size: {zip_size_mb:.2f} MB")
-          
-          # پارت کردن 50 مگی
-          print("✂️ Splitting into 50MB parts...")
-          os.makedirs('data/raw/parts', exist_ok=True)
-          
-          part_num = 1
-          with open(zip_path, 'rb') as f:
-              while True:
-                  chunk = f.read(50 * 1024 * 1024)
-                  if not chunk:
-                      break
-                  part_path = f'data/raw/parts/sample_700mb.zip.part{part_num:03d}'
-                  with open(part_path, 'wb') as part_file:
-                      part_file.write(chunk)
-                  print(f"✅ Part {part_num:03d}: {len(chunk)/(1024*1024):.2f} MB")
-                  part_num += 1
-          
-          print(f"\n🎉 Done! {part_num-1} parts created")
-          
-          # پاک کردن فایل‌های موقت
-          os.remove(output_csv)
-          os.remove(zip_path)
-          
-          # متادیتا
-          with open('data/raw/parts/info.txt', 'w') as f:
-              f.write(f"Target size: 700 MB\n")
-              f.write(f"Actual size: {current_bytes/(1024*1024):.2f} MB\n")
-              f.write(f"ZIP size: {zip_size_mb:.2f} MB\n")
-              f.write(f"Number of rows: {total_rows:,}\n")
-              f.write(f"Number of parts: {part_num-1}\n")
-          
-        shell: python
-      
-      - name: Commit and push
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/raw/parts/
-          git commit -m "Add exact 700MB dataset parts" || echo "No changes"
-          git push
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      run: |
+        pip install kagglehub pandas
+    
+    - name: Download first N rows from dataset
+      env:
+        N_ROWS: ${{ github.event.inputs.rows_to_download }}
+      run: |
+        import kagglehub
+        import pandas as pd
+        import os
+        
+        # Download dataset
+        print("Downloading dataset from Kaggle...")
+        path = kagglehub.dataset_download("mohammadaminorojloo/persian-twitter-tweets-20m")
+        print(f"Dataset downloaded to: {path}")
+        
+        # Find the main data file (assuming .csv or .parquet)
+        files = os.listdir(path)
+        data_file = None
+        for file in files:
+            if file.endswith(('.csv', '.parquet', '.json')):
+                data_file = os.path.join(path, file)
+                break
+        
+        if not data_file:
+            raise Exception("No data file found in downloaded dataset")
+        
+        print(f"Reading data from: {data_file}")
+        
+        # Read only first N rows
+        if data_file.endswith('.csv'):
+            df = pd.read_csv(data_file, nrows=int(os.environ['N_ROWS']))
+        elif data_file.endswith('.parquet'):
+            df = pd.read_parquet(data_file)
+            df = df.head(int(os.environ['N_ROWS']))
+        else:
+            df = pd.read_json(data_file, lines=True)
+            df = df.head(int(os.environ['N_ROWS']))
+        
+        # Save subset
+        output_file = 'persian_tweets_subset.csv'
+        df.to_csv(output_file, index=False)
+        
+        print(f"Saved {len(df)} rows to {output_file}")
+        print(f"File size: {os.path.getsize(output_file) / 1024 / 1024:.2f} MB")
+        
+      shell: python
+    
+    - name: Split into 50MB chunks
+      run: |
+        import os
+        import math
+        
+        # Create chunks directory
+        os.makedirs('chunks', exist_ok=True)
+        
+        input_file = 'persian_tweets_subset.csv'
+        chunk_size_mb = 50
+        chunk_size_bytes = chunk_size_mb * 1024 * 1024
+        
+        # Get file size
+        file_size = os.path.getsize(input_file)
+        num_chunks = math.ceil(file_size / chunk_size_bytes)
+        
+        print(f"Splitting {file_size / 1024 / 1024:.2f}MB into {num_chunks} chunks of ~{chunk_size_mb}MB each")
+        
+        # Split using command line for better performance
+        import subprocess
+        subprocess.run([
+            'split', 
+            '-b', str(chunk_size_bytes), 
+            '-d', 
+            '--additional-suffix=.csv',
+            input_file, 
+            'chunks/persian_tweets_part_'
+        ], check=True)
+        
+        # Rename chunks to have proper numbering
+        chunks = sorted(os.listdir('chunks'))
+        for i, chunk in enumerate(chunks):
+            old_path = os.path.join('chunks', chunk)
+            new_path = os.path.join('chunks', f'persian_tweets_part_{i+1:03d}.csv')
+            os.rename(old_path, new_path)
+            print(f"Created: {new_path} ({os.path.getsize(new_path) / 1024 / 1024:.2f}MB)")
+        
+      shell: python
+    
+    - name: Create archive manifest
+      run: |
+        cat > chunks/README.md << EOF
+        # Persian Twitter Dataset Chunks
+        
+        This dataset contains ${{ github.event.inputs.rows_to_download }} rows from the 
+        [Persian Twitter Tweets 20M](https://www.kaggle.com/datasets/mohammadaminorojloo/persian-twitter-tweets-20m) dataset.
+        
+        - Original file was split into 50MB chunks
+        - Total chunks: $(ls -1 chunks/persian_tweets_part_*.csv | wc -l)
+        - Download date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+        
+        ## Reconstruct the original file
+        
+        To combine these chunks back into the original CSV file:
+        
+        \`\`\`bash
+        cat chunks/persian_tweets_part_*.csv > persian_tweets_subset.csv
+        \`\`\`
+        
+        Or using Python:
+        
+        \`\`\`python
+        import pandas as pd
+        import glob
+        
+        chunks = glob.glob('chunks/persian_tweets_part_*.csv')
+        df = pd.concat([pd.read_csv(chunk) for chunk in sorted(chunks)])
+        df.to_csv('persian_tweets_subset.csv', index=False)
+        \`\`\`
+        EOF
+        
+    - name: Configure Git
+      run: |
+        git config --global user.name 'github-actions[bot]'
+        git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+    
+    - name: Commit and push to main
+      run: |
+        TIMESTAMP=$(date +'%Y%m%d_%H%M%S')
+        
+        # Pull latest changes
+        git pull origin main --rebase || true
+        
+        # Create timestamped folder to avoid conflicts
+        mkdir -p "dataset_chunks/$TIMESTAMP"
+        mv chunks/* "dataset_chunks/$TIMESTAMP/"
+        
+        # Update latest symlink (create if doesn't exist, or update)
+        ln -snf "$TIMESTAMP" dataset_chunks/latest
+        
+        git add dataset_chunks/
+        git commit -m "Add Persian Twitter dataset subset (${{ github.event.inputs.rows_to_download }} rows, split into 50MB chunks) - ${TIMESTAMP}" || echo "No changes to commit"
+        git push origin main
+        
+      env:
+        GITHUB_TOKEN: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
